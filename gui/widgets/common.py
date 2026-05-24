@@ -3,16 +3,19 @@ gui/widgets/common.py — 汎用ウィジェット。
 
 依存: gui.theme, gui.icons, PyQt6
 このモジュールは widgets レイヤの基盤。同レイヤの他 widget からも参照されてよいが、
-上層 (gui.dialogs, gui.menus, gui._mixins.*, gui.main_window) を import してはならない。
+上層 (gui.dialogs, gui.menus, gui._mixins.*, gui.main_window) を直接 import してはならない。
+style_qmenu (gui.menus) はレイヤ的に上層のため _AlwaysAcceptWheelTextEdit 内で
+lazy import している。
 
 提供:
 - _RankItemDelegate: 棋力サブメニューの QListWidget item を独自描画する delegate
 - SLIDER_HEIGHT / SLIDER_HANDLE: FlatSlider 用サイズ定数
 - FlatSlider: 細いトラック + 正円ハンドルのフラットスライダー
 - _ScrollFadeOverlay: QTextEdit に被せるフェードオーバーレイ
+- _AlwaysAcceptWheelTextEdit: 限界到達ホイールイベントを親へ伝播させない QTextEdit
 """
 from __future__ import annotations
-from PyQt6.QtWidgets import QSlider, QStyledItemDelegate, QStyle, QWidget
+from PyQt6.QtWidgets import QSlider, QStyledItemDelegate, QStyle, QWidget, QTextEdit
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPainter, QPixmap
 
@@ -426,3 +429,95 @@ class _ScrollFadeOverlay(QWidget):
             grad_bot.setColorAt(1.0, c)
             p.fillPath(bot_path, grad_bot)
         p.end()
+
+
+# ── ホイールイベントを親に伝播させない QTextEdit ─────────────────────────────
+class _AlwaysAcceptWheelTextEdit(QTextEdit):
+    """通常の QTextEdit はスクロール限界(先頭/末尾)に達したホイールイベントを
+    accept しないため、親ウィジェットに伝播してしまう。コメントオーバーレイで
+    使うと、テキストの末尾でホイールを回したときに背後のグラフ/盤面の
+    手送りが発火してしまう。本クラスは wheelEvent を必ず accept() し、
+    親への伝播を遮断する。
+
+    加えて、縦スクロールバーは非表示にする(代わりに上下端のフェードで
+    スクロール余地を伝える設計だが、フェード描画は外部の
+    _ScrollFadeOverlay が担当する)。
+    viewport の上下に余白を確保することで、テキスト本文がフェード領域
+    (上下 16px)に直接重ならないようにする。
+    """
+    # viewport の上下に確保するマージン (px)
+    # FADE_HEIGHT (16) より小さくして、テキスト本文の頭/尾がフェードに少し
+    # 食い込む(=フェード越しに薄く見え始める)挙動にする。
+    _VIEWPORT_VPAD = 12
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # スクロールバーは非表示。スクロール自体(ホイール/キー操作)は機能する。
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # viewport の上下に余白を確保。これによりテキスト本文の最初/最後が
+        # フェード領域(高さ 16px)の内側に直接来るのを防ぐ。
+        # 左右は既存のレイアウト/documentMargin の余白を活かすので 0。
+        self.setViewportMargins(0, self._VIEWPORT_VPAD, 0, self._VIEWPORT_VPAD)
+
+        # 選択ハイライトをフォーカス状態に依存させない。
+        # 右クリックメニュー表示中などフォーカスが外れた時、Qt 標準では
+        # Inactive グループの Highlight 色が適用されて選択範囲のハイライトが
+        # 消えたように見える。Inactive/Disabled の Highlight 色を Active と
+        # 同じに揃えることで、コメント欄では常に同じ青ハイライトを維持する。
+        from PyQt6.QtGui import QPalette
+        pal = self.palette()
+        active_hl   = pal.color(QPalette.ColorGroup.Active, QPalette.ColorRole.Highlight)
+        active_htxt = pal.color(QPalette.ColorGroup.Active, QPalette.ColorRole.HighlightedText)
+        for grp in (QPalette.ColorGroup.Inactive, QPalette.ColorGroup.Disabled):
+            pal.setColor(grp, QPalette.ColorRole.Highlight,       active_hl)
+            pal.setColor(grp, QPalette.ColorRole.HighlightedText, active_htxt)
+        self.setPalette(pal)
+
+    def wheelEvent(self, ev):
+        super().wheelEvent(ev)  # 通常のスクロール処理
+        ev.accept()             # 限界到達時も親に流さない
+
+    def contextMenuEvent(self, ev):
+        """コメント入力欄の右クリックメニュー。
+        Qt 標準の QTextEdit メニューを廃し、他のポップアップメニューと
+        スタイル(テーマ追従・フォント・余白)を統一したカスタムメニューを
+        表示する。項目は「切り取り / コピー / 貼り付け / すべて選択」。
+        選択ハイライトの保持は __init__ で palette を設定済み。
+        """
+        from PyQt6.QtWidgets import QMenu, QApplication
+        from PyQt6.QtGui import QKeySequence
+        from gui.menus import style_qmenu
+
+        menu = QMenu(self)
+        style_qmenu(menu, leaf=True)
+
+        cursor = self.textCursor()
+        has_selection = cursor.hasSelection()
+
+        clipboard = QApplication.clipboard()
+        has_clip_text = bool(clipboard and clipboard.text())
+
+        cut_act = menu.addAction("切り取り")
+        cut_act.setShortcut(QKeySequence.StandardKey.Cut)
+        cut_act.setEnabled(has_selection and not self.isReadOnly())
+        cut_act.triggered.connect(self.cut)
+
+        copy_act = menu.addAction("コピー")
+        copy_act.setShortcut(QKeySequence.StandardKey.Copy)
+        copy_act.setEnabled(has_selection)
+        copy_act.triggered.connect(self.copy)
+
+        paste_act = menu.addAction("貼り付け")
+        paste_act.setShortcut(QKeySequence.StandardKey.Paste)
+        paste_act.setEnabled(has_clip_text and not self.isReadOnly())
+        paste_act.triggered.connect(self.paste)
+
+        menu.addSeparator()
+
+        select_all_act = menu.addAction("すべて選択")
+        select_all_act.setShortcut(QKeySequence.StandardKey.SelectAll)
+        select_all_act.triggered.connect(self.selectAll)
+
+        menu.exec(ev.globalPos())
+
