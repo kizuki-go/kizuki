@@ -26,7 +26,7 @@ from PyQt6.QtGui import QPainter, QBrush, QPen
 from PyQt6.QtSvg import QSvgRenderer
 
 from core.katago_engine import KataGoEngine
-from gui.theme import T
+from gui.theme import T, _theme
 from gui.fonts import Font_XS, Font_XL
 
 logger = logging.getLogger(__name__)
