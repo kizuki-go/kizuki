@@ -1856,8 +1856,6 @@ class BoardWidget(QWidget):
         if not skip_stones:
             with _profile("Board.paint.stones"):
                 self._stones(p)
-        with _profile("Board.paint.blunder"):
-            self._blunder_ring(p)
         # ── 形勢(ownership) ──
         # フェードアウト中もスナップショットを使って描画継続
         if a_ownership > 0.0:
@@ -3024,10 +3022,6 @@ class BoardWidget(QWidget):
             c = QColor(T().TEXT2)  # 未解析: グレー
         return c
 
-    def _blunder_ring(self, p):
-        """外側リング: 廃止（内側マーカーに統合）。"""
-        pass
-
     def _move_number_overlay(self, p):
         """盤上の石に手順番号を描画する。
 
@@ -3701,12 +3695,6 @@ class InfoPanel(QWidget):
         gl.addWidget(self._graph)
         layout.addWidget(graph_card, stretch=1)
 
-        # 内部参照用
-        self._wr_bar = self._scoreboard
-
-    def get_comment(self) -> str:
-        return ""
-
     def update_game_info(self, game, *, rules: str = "", komi: float = 6.5):
         self._scoreboard.update_game_info(game, rules=rules, komi=komi)
 
@@ -3721,12 +3709,6 @@ class InfoPanel(QWidget):
             return
         # win_rate は「打つ前の黒視点勝率」= そのノードでの局面評価
         self._scoreboard.update_winrate(ma.win_rate, ma.score_lead)
-
-    def update_summary(self, analyses):
-        pass
-
-    def set_katago_status(self, connected: bool):
-        pass
 
     def apply_theme(self):
         """テーマ切り替え時に InfoPanel とカード背景を再適用する。"""
@@ -4604,14 +4586,6 @@ class MoveInfoCard(QWidget):
                 self._update_tree_fade_overlays()
         return super().eventFilter(obj, ev)
 
-    def set_comment_text(self, text: str):
-        """後方互換のため残す（実際のコメントはMainWindowのオーバーレイで管理）"""
-        pass
-
-    def get_comment_text(self) -> str:
-        """後方互換のため残す"""
-        return ""
-
     def set_tree(self, tree: "BranchTreeWidget"):
         """分岐ツリーウィジェットをカード内に設定する。"""
         self._inner_tree = tree
@@ -4921,11 +4895,6 @@ class MoveInfoCard(QWidget):
         # バッジ色をテーマ/色調整値で即時再計算(アニメは挟まない)
         if hasattr(self, "_badge") and self._badge:
             self._badge.refresh_colors()
-        # コメント欄のスタイル更新
-
-        if hasattr(self, "_comment_btn"):
-            has_comment = bool(self.get_comment_text().strip())
-            self._update_comment_btn_style(has_comment)
         # 情報行とメトリクス行の間の水平仕切り線
         if hasattr(self, "_metric_div") and self._metric_div:
             self._metric_div.setStyleSheet(
@@ -7608,9 +7577,6 @@ class NavBar(QWidget):
             self._slider.setValue(self._slider.value() + 1)
         ev.accept()
 
-    def update_move_label(self, cur, total):
-        pass
-
     def _apply_slider_style(self):
         """テーマ切り替え時にスライダー・ボタン類を再スタイル。"""
         self.setStyleSheet(
@@ -10230,7 +10196,8 @@ class _FirstLaunchRankDialog(QDialog):
         ev.ignore()
 
     def reject(self):
-        # reject() (キャンセル経路) も無視
+        # ESC キーや × ボタンでの閉じる操作を無効化する。
+        # このダイアログは棋力選択が必須のため、選択完了まで閉じられない設計。
         pass
 
     def selected_rank(self) -> int | None:
