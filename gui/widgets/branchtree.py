@@ -1094,8 +1094,7 @@ class BranchTreeWidget(QWidget):
 
     def _show_node_context_menu(self, node, global_pos):
         from PyQt6.QtWidgets import QMenu
-        # Phase 4: replace with rom gui.menus import style_qmenu
-        from gui.main_window import style_qmenu
+        from gui.menus import style_qmenu
         menu = QMenu(self)
         # ノード右クリックメニューはサブメニューを持たないリーフ
         style_qmenu(menu, leaf=True)

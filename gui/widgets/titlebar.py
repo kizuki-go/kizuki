@@ -516,8 +516,7 @@ class _CustomTitleBar(QWidget):
             qmenu.installEventFilter(self)
             qmenu._kizuki_hover_filter_installed = True
             # ポップアップ枠外の塗り残し対策(共通ヘルパー使用)
-            # Phase 4: replace with rom gui.menus import style_qmenu
-            from gui.main_window import style_qmenu
+            from gui.menus import style_qmenu
             style_qmenu(qmenu)
 
     def attach_submenu_filter(self, qmenu) -> None:

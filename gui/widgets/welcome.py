@@ -164,8 +164,7 @@ class WelcomePane(QWidget):
         from PyQt6.QtGui import QKeySequence, QAction
         menu = QMenu(self)
         # 親メニューは「新規作成」サブメニューを持つので非リーフ
-        # Phase 4: replace with rom gui.menus import style_qmenu
-        from gui.main_window import style_qmenu
+        from gui.menus import style_qmenu
         style_qmenu(menu)
         # ── 新規作成（サブメニュー: 19路盤 / 13路盤 / 9路盤）──────────
         # サブメニューにも同じスタイル+透過化を適用(これはリーフ)
