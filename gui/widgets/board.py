@@ -10,6 +10,7 @@ gui/widgets/board.py — 碁盤ウィジェットと中央配置コンテナ。
 - BoardContainer: 常に正方形・中央配置するコンテナ
 """
 from __future__ import annotations
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -23,9 +24,13 @@ from PyQt6.QtGui import (
     QRadialGradient, QTransform,
 )
 
+from core.sgf_parser import sgf_coord_to_pos, pos_to_sgf_coord
+
 from gui.theme import T, R_MD, COLS
 from gui.fonts import F, Fmono
 from gui.infra import _profile, _profile_method, BlunderInfo
+
+logger = logging.getLogger(__name__)
 
 
 # ── Board widget ────────────────────────────────────────────────────────────

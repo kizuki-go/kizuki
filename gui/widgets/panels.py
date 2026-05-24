@@ -41,6 +41,7 @@ from gui.fonts import (
 )
 from gui.infra import _profile, _profile_method, eval_badge_tuple
 from gui.widgets.graph import WinRateGraph
+from gui.widgets.branchtree import _TreeEdgeFadeOverlay
 from core.analyzer import MoveAnalysis
 
 

@@ -10,6 +10,7 @@ contextMenu 内で lazy import している。
 - BranchTreeWidget: 棋譜の分岐ツリー (描画、ノードクリック、スクロール)
 """
 from __future__ import annotations
+import time
 from typing import Optional
 
 from PyQt6.QtWidgets import QWidget, QScrollArea, QMenu

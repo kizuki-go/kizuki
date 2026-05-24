@@ -23,7 +23,7 @@ from PyQt6.QtGui import (
     QPainter, QPainterPath, QPen, QBrush, QColor, QIcon, QPixmap, QPalette,
 )
 
-from gui.theme import T, SP_XS, SP_SM, SP_LG
+from gui.theme import T, SP_XS, SP_SM, SP_LG, PAD_CARD
 from gui.fonts import F, Font_XS, Font_MD
 from gui.icons import make_icon, icon_button_qss, install_icon_hover_color_swap
 from gui.widgets.common import FlatSlider, SLIDER_HANDLE
