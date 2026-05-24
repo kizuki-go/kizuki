@@ -655,7 +655,7 @@ class _CustomTitleBar(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         # テーマに応じて light/dark 版を選択
         theme_mode = "dark" if t.BG.lightness() < 128 else "light"
-        svg_path = Path(__file__).parent / "assets" / f"logo_mark_{theme_mode}.svg"
+        svg_path = Path(__file__).parent.parent / "assets" / f"logo_mark_{theme_mode}.svg"
         rendered = False
         try:
             if svg_path.exists():

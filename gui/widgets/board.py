@@ -877,9 +877,9 @@ class BoardWidget(QWidget):
     @staticmethod
     def _wood_cache_path() -> Path:
         """テクスチャPNGの保存先パスを返す。
-        main_window.py と同じ階層の gui/ フォルダ内に保存する。
+        gui/cache/ フォルダ内に保存する (board.py は gui/widgets/ 配下にあるため .parent.parent)。
         """
-        cache_dir = Path(__file__).parent / "cache"
+        cache_dir = Path(__file__).parent.parent / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir / "wood_texture_512_d8b058.png"
 
