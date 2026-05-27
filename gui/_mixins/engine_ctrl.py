@@ -87,7 +87,7 @@ class EngineCtrlMixin:
         """
         self._ai_enabled = enabled
         # BoardWidget の hints フェード判定で参照するため同期
-        if hasattr(self, "_board"):
+        if self._board is not None:
             self._board.ai_enabled = enabled
         # 状態を永続化（再起動時に復元）
         from PyQt6.QtCore import QSettings
@@ -685,7 +685,7 @@ class EngineCtrlMixin:
         # エンジンに反映
         self._apply_rules_komi_to_engine()
         # InfoPanel 表示を更新
-        if hasattr(self, "_info") and self._info is not None:
+        if self._info is not None:
             try:
                 self._info.update_game_info(self._game, rules=self._current_rules, komi=self._current_komi)
             except Exception:
@@ -705,7 +705,7 @@ class EngineCtrlMixin:
         値に切り替わるのが普通なので、プリセット経由扱いで _on_komi_changed を
         呼べばよい。
         """
-        if not hasattr(self, "_action_komi"):
+        if self._action_komi is None:
             return  # メニュー構築前
         via_other = getattr(self, "_komi_via_other", False)
         if via_other:
@@ -726,7 +726,7 @@ class EngineCtrlMixin:
                 for act in self._action_komi.values():
                     act.setChecked(False)
         # 「その他」側のチェック表示
-        if hasattr(self, "_komi_custom_widget") and self._komi_custom_widget is not None:
+        if self._komi_custom_widget is not None:
             self._komi_custom_widget.set_checked(via_other)
             # その他経由時はウィジェット数値も現在値に合わせる
             # (プリセット経由時はウィジェットの調整中値を保持するため変更しない)
@@ -752,7 +752,7 @@ class EngineCtrlMixin:
         self._apply_rules_komi_to_engine()
         # メニューのチェック状態を同期(その他ウィジェットの値は変えない)
         self._sync_komi_menu_check(komi)
-        if hasattr(self, "_info") and self._info is not None:
+        if self._info is not None:
             try:
                 self._info.update_game_info(self._game, rules=self._current_rules, komi=self._current_komi)
             except Exception:
@@ -777,7 +777,7 @@ class EngineCtrlMixin:
             # 解析キャッシュをクリア
             self._node_analyses = {}
             self._apply_rules_komi_to_engine()
-            if hasattr(self, "_info") and self._info is not None:
+            if self._info is not None:
                 try:
                     self._info.update_game_info(self._game, rules=self._current_rules, komi=self._current_komi)
                 except Exception:
@@ -785,7 +785,7 @@ class EngineCtrlMixin:
         # メニューのチェック状態を同期
         self._sync_komi_menu_check(komi)
         # メニューを閉じる
-        if hasattr(self, "_komi_menu") and self._komi_menu is not None:
+        if self._komi_menu is not None:
             self._komi_menu.close()
 
     def _on_komi_realtime_change(self: "MainWindowProto", komi: float):
@@ -804,7 +804,7 @@ class EngineCtrlMixin:
         # 解析キャッシュをクリア
         self._node_analyses = {}
         self._apply_rules_komi_to_engine()
-        if hasattr(self, "_info") and self._info is not None:
+        if self._info is not None:
             try:
                 self._info.update_game_info(self._game, rules=self._current_rules, komi=self._current_komi)
             except Exception:
@@ -825,13 +825,13 @@ class EngineCtrlMixin:
         """
         vol = max(0.0, min(1.0, value / 100.0))
         self._sound.volume = vol
-        if hasattr(self, "_volume_label"):
+        if self._volume_label is not None:
             # ラベルは固定中央配置(縦スライダー)。テキストだけ更新する。
             self._volume_label.setText(f"{value}%")
         from PyQt6.QtCore import QSettings
         QSettings("Kizuki", "Kizuki").setValue("sound_volume", vol)
         # タイトルバー音量アイコンを 0% かどうかで切り替え
-        if hasattr(self, "_titlebar") and hasattr(self._titlebar, "_btn_volume"):
+        if self._titlebar is not None and hasattr(self._titlebar, "_btn_volume"):
             self._titlebar.update_volume_icon(muted=(value <= 0))
 
     def _on_volume_icon_clicked(self: "MainWindowProto"):
@@ -844,7 +844,7 @@ class EngineCtrlMixin:
         - 外側クリック → Qt 標準で自動的に閉じる(popup の挙動)
         位置はアイコンボタンの直下(VS Code/Win11 風)。
         """
-        if not hasattr(self, "_volume_menu") or not hasattr(self, "_titlebar"):
+        if self._volume_menu is None or self._titlebar is None:
             return
         btn = getattr(self._titlebar, "_btn_volume", None)
         if btn is None:
@@ -861,7 +861,7 @@ class EngineCtrlMixin:
                 self._volume_close_state["last_close_ms"] = now_ms
                 # 他メニューと共通の「直近メニュー終了時刻」も更新
                 # (タイトルバーのドラッグ判定で使われる)
-                if hasattr(self, "_titlebar"):
+                if self._titlebar is not None:
                     self._titlebar._last_any_menu_close_ms = now_ms
             m.aboutToHide.connect(_on_about_to_hide)
             m._kizuki_volume_toggle_installed = True

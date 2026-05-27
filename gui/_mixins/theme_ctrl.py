@@ -149,7 +149,7 @@ class ThemeCtrlMixin:
         QSettings("Kizuki", "Kizuki").setValue("theme", mode)
 
         # ── メニューのチェック状態を同期 ──
-        if hasattr(self, "_action_light"):
+        if self._action_light is not None:
             self._action_light.setChecked(mode == "light")
             self._action_dark.setChecked(mode == "dark")
 
@@ -184,7 +184,7 @@ class ThemeCtrlMixin:
             rw.setPalette(_rw_pal)
             rw.setAutoFillBackground(True)
         # カスタムタイトルバーのテーマ追従
-        if hasattr(self, "_titlebar"):
+        if self._titlebar is not None:
             self._titlebar.apply_theme()
         # タイトルバーに紐付けた各 QMenu(ポップアップ)に menu_qss を再適用。
         # QMenu は top-level popup として表示されるため、MainWindow の
@@ -194,7 +194,7 @@ class ThemeCtrlMixin:
             if m is not None:
                 m.setStyleSheet(menu_qss())
         # コミメニューの「その他」インラインウィジェットも apply_theme
-        if hasattr(self, "_komi_custom_widget") and self._komi_custom_widget is not None:
+        if self._komi_custom_widget is not None:
             self._komi_custom_widget.apply_theme()
         # 棋力メニュー内の QListWidget にもテーマ追従の QSS を再適用
         # (menu_qss は QListWidget には効かないため別途必要)。
@@ -233,7 +233,7 @@ class ThemeCtrlMixin:
             w.setAutoFillBackground(True)
 
         # ── 4. フローティングパネル背景 ──────────────────────────────────
-        if hasattr(self, "_right_col"):
+        if self._right_col is not None:
             self._right_col.setStyleSheet(
                 f"QWidget#floating_panel {{"
                 f"  background:{T().PANEL.name()};"
@@ -255,20 +255,20 @@ class ThemeCtrlMixin:
         # NavBar: スライダースタイル更新 + palette を BG に揃える
         # (palette がデフォルト黒のまま残ると、ライトモードでリサイズ時に
         #  一瞬黒い領域が見える原因となる)
-        if hasattr(self, "_navbar"):
+        if self._navbar is not None:
             self._navbar._apply_slider_style()
             self._navbar.setPalette(_bg_pal)
 
         # 音量スライダー（メニュー内）
-        if hasattr(self, "_volume_slider"):
+        if self._volume_slider is not None:
             self._volume_slider.update()  # FlatSlider は paintEvent で描画
-        if hasattr(self, "_volume_label"):
+        if self._volume_label is not None:
             self._volume_label.setStyleSheet(
                 f"color:{T().TEXT.name()}; background:transparent; font-size:14px;"
             )
 
         # ── 6. スクロールエリア + カード背景 ──────────────────────────────
-        if hasattr(self, "_cards_scroll"):
+        if self._cards_scroll is not None:
             self._cards_scroll.setStyleSheet(
                 f"QScrollArea {{ border:none; background:{T().BG.name()}; }}"
                 f"QScrollArea > QWidget > QWidget {{ background:{T().BG.name()}; }}"
@@ -294,7 +294,7 @@ class ThemeCtrlMixin:
                 w.setPalette(_wpal)
 
         # ── 7. コメントカード ────────────────────────────────────────────
-        if hasattr(self, "_comment"):
+        if self._comment is not None:
             # ObjectName ベースで親カードを探す
             card = self._comment.parent()
             if card:
@@ -320,37 +320,37 @@ class ThemeCtrlMixin:
                 frame.setStyleSheet(f"background:{T().BORDER2.name()};")
 
         # ── 9. paintEvent 系ウィジェット（update() で自動再描画） ─────────
-        if hasattr(self, "_board"):
+        if self._board is not None:
             self._board.update()
-        if hasattr(self, "_branch_tree"):
+        if self._branch_tree is not None:
             self._branch_tree.update()
-        if hasattr(self, "_info"):
+        if self._info is not None:
             self._info.apply_theme()
 
         # ── 10. pyqtgraph グラフ（InfoPanel.apply_theme 内で処理済み） ────
 
         # ── 11. ウェルカム画面 ───────────────────────────────────────────
-        if hasattr(self, "_welcome_pane"):
+        if self._welcome_pane is not None:
             self._welcome_pane.apply_theme()
 
         # ── 12. D&D オーバーレイ内のカード ───────────────────────────────
         # 半透明背景はテーマに依らず固定だが、中央のカード(_WelcomeCard)は
         # T().TEXT/BORDER 等を paintEvent で参照するためテーマ追従が必要
-        if hasattr(self, "_drop_card"):
+        if self._drop_card is not None:
             self._drop_card.update()
 
         # ── 13. 手の情報カード・トグルバー ───────────────────────────────
-        if hasattr(self, "_move_card"):
+        if self._move_card is not None:
             self._move_card.apply_theme()
-        if hasattr(self, "_toggle_bar"):
+        if self._toggle_bar is not None:
             self._toggle_bar.apply_theme()
 
         # ── 14. スライダーマーカーオーバーレイ ───────────────────────────
-        if hasattr(self, "_navbar") and hasattr(self._navbar, "_marker_overlay"):
+        if self._navbar is not None and hasattr(self._navbar, "_marker_overlay"):
             self._navbar._marker_overlay.update()
 
         # ── 15. コメントオーバーレイ ─────────────────────────────────────
-        if hasattr(self, "_comment_textedit"):
+        if self._comment_textedit is not None:
             self._comment_textedit.setStyleSheet(
                 f"QTextEdit {{ background:transparent; color:{T().TEXT.name()};"
                 f" border:none; font-size:14px;"
@@ -359,7 +359,7 @@ class ThemeCtrlMixin:
             # フェードオーバーレイの色も追従させる(再描画で次の paintEvent に反映)
             if hasattr(self._comment_textedit, "_fade_overlay"):
                 self._comment_textedit._fade_overlay.update()
-        if hasattr(self, "_comment_overlay"):
+        if self._comment_overlay is not None:
             self._comment_overlay.update()
         # ✕ボタンの色(T().TEXT)もテーマ追従させる
         self._apply_comment_close_btn_qss()
@@ -369,7 +369,7 @@ class ThemeCtrlMixin:
         # アニメで「隠れていた領域が見える」場面で旧テーマ色が露出する
         # ことがあるため、_root_widget 配下を含めて明示的に update する。
         self.update()
-        if hasattr(self, "_root_widget"):
+        if self._root_widget is not None:
             self._root_widget.update()
             for child in self._root_widget.findChildren(QWidget):
                 child.update()
@@ -387,7 +387,7 @@ class ThemeCtrlMixin:
         色は T().TEXT(ダーク=#fff、ライト=#333)。ホバー時も背景は変えない。
         テーマ切替時にも再適用するため _apply_theme_immediate から呼ばれる。
         """
-        if not hasattr(self, "_comment_close_btn"):
+        if self._comment_close_btn is None:
             return
         color = T().TEXT.name()
         self._comment_close_btn.setStyleSheet(
@@ -425,7 +425,7 @@ class ThemeCtrlMixin:
         # 右カラム（情報パネル）の表示制御
         # ウェルカム時: 強制非表示
         # 碁盤時:       _right_panel_collapsed に従う(前回状態を尊重)
-        if hasattr(self, "_right_col"):
+        if self._right_col is not None:
             if welcome:
                 self._right_col.setVisible(False)
             else:
@@ -434,14 +434,14 @@ class ThemeCtrlMixin:
         # 右パネルトグルボタン: ウェルカム時は非アクティブ(レイアウト幅は維持)
         # setVisible(False) を使うとレイアウトが詰まって解析画面遷移時にボタン群が
         # 左へ流れる動きが目立つので、アイコン透明化 + クリック無効化で代替する。
-        if hasattr(self, "_titlebar") and hasattr(self._titlebar, "set_panel_toggle_active"):
+        if self._titlebar is not None and hasattr(self._titlebar, "set_panel_toggle_active"):
             self._titlebar.set_panel_toggle_active(not welcome)
         # スクリーンショット・保存・コピー: ウェルカム時は無効化
-        if hasattr(self, "_ss_act"):
+        if self._ss_act is not None:
             self._ss_act.setEnabled(not welcome)
-        if hasattr(self, "_save_act"):
+        if self._save_act is not None:
             self._save_act.setEnabled(not welcome)
-        if hasattr(self, "_copy_act"):
+        if self._copy_act is not None:
             self._copy_act.setEnabled(not welcome)
         # 表示モード変更後にパネル配置を再計算
         # setStyleSheet 後に Qt がレイアウトを再計算するため 1 フレーム遅らせる
@@ -475,11 +475,11 @@ class ThemeCtrlMixin:
         from PyQt6.QtWidgets import QGraphicsOpacityEffect
 
         targets = []
-        if hasattr(self, "_board_container"):
+        if self._board_container is not None:
             targets.append(self._board_container)
-        if hasattr(self, "_navbar"):
+        if self._navbar is not None:
             targets.append(self._navbar)
-        if hasattr(self, "_right_col"):
+        if self._right_col is not None:
             targets.append(self._right_col)
 
         # 各ウィジェットに opacity=0 の effect を即時適用しておく。
@@ -510,11 +510,11 @@ class ThemeCtrlMixin:
         if not effects:
             from PyQt6.QtWidgets import QGraphicsOpacityEffect
             targets = []
-            if hasattr(self, "_board_container"):
+            if self._board_container is not None:
                 targets.append(self._board_container)
-            if hasattr(self, "_navbar"):
+            if self._navbar is not None:
                 targets.append(self._navbar)
-            if hasattr(self, "_right_col"):
+            if self._right_col is not None:
                 targets.append(self._right_col)
             if not targets:
                 return

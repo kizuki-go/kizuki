@@ -184,6 +184,54 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
                     (後方互換のため)。
         """
         super().__init__()
+
+        # ======================================================================
+        # Phase 7: 全 Mixin / 本体メソッドから参照される属性の事前初期化。
+        # _build_ui / _build_menu で後から生成される UI 参照は None で
+        # 先に置く。これにより各メソッドは hasattr(self, "_x") の
+        # 代わりに self._x is not None で判定でき、IDE 補完も効く。
+        # ======================================================================
+        # ─ UI コンポーネント (後で _build_ui で生成) ─
+        self._root_widget = None
+        self._titlebar = None
+        self._navbar = None
+        self._board = None
+        self._board_container = None
+        self._info = None
+        self._move_card = None
+        self._branch_tree = None
+        self._welcome_pane = None
+        self._toggle_bar = None
+        self._left_col = None
+        self._right_col = None
+        self._left_stack = None
+        self._cards_scroll = None
+        self._drop_card = None
+        self._drop_overlay = None
+        self._comment_textedit = None
+        self._comment = None
+        self._comment_overlay = None
+        self._comment_fade_overlay = None
+        self._comment_close_btn = None
+        self._volume_label = None
+        self._volume_slider = None
+        self._volume_menu = None
+        self._komi_custom_widget = None
+        self._komi_menu = None
+        self._copy_act = None
+        self._save_act = None
+        self._ss_act = None
+        self._action_light = None
+        self._panel_opacity_effect = None
+        self._wheel_refresh_timer = None
+        self._pre_minimize_geometry = None
+        self._pre_minimize_opacity = None
+        self._engine = None
+        self._wheel_last_refresh_t = 0.0
+        # ─ dict 系コンテナ ─
+        self._scroll_anims = {}
+        self._action_komi = {}
+
         # frameless化: OS標準のタイトルバー(枠+ボタン)を消し、自前の
         # _CustomTitleBar に置き換える。WindowSystemContextHelp は維持。
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
@@ -388,7 +436,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
 
         if _saved_panel_collapsed:
             # 起動時に閉じた状態 → ウィンドウ幅から右パネル分を引く + パネル非表示
-            if hasattr(self, "_right_col"):
+            if self._right_col is not None:
                 self._right_col.setVisible(False)
             cur = self.geometry()
             # ウィンドウ幅 = 碁盤の最大可能サイズ + 横マージン
@@ -411,7 +459,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
             self.resize(new_w, cur.height())
             self.move(self.screen().geometry().center() - self.rect().center())
         # トグルボタンのアイコンを現在状態に同期
-        if hasattr(self, "_titlebar"):
+        if self._titlebar is not None:
             self._titlebar.update_panel_toggle_icon(is_open=not _saved_panel_collapsed)
             # 起動直後はウェルカム画面なのでトグルボタンを非アクティブにする
             # (碁盤画面に遷移した際に _set_welcome_mode(False) で active=True に
@@ -777,7 +825,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         # 新規作成: サブメニューで盤面サイズを選択（19路にCtrl+Nを割当て）
         new_menu = fm.addMenu("新規作成")
         style_qmenu(new_menu, leaf=True)
-        if hasattr(self, "_titlebar"):
+        if self._titlebar is not None:
             self._titlebar.attach_submenu_filter(new_menu)
         na19 = QAction("19路盤", self); na19.setShortcut(QKeySequence.StandardKey.New)
         na19.triggered.connect(lambda: self._new_game(19)); new_menu.addAction(na19)
@@ -887,7 +935,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         # 経由でスクロールさせる(コミメニューの「その他」と同じ哲学)。
         rank_menu = setting_menu.addMenu("あなたの棋力")
         style_qmenu(rank_menu, leaf=True)
-        if hasattr(self, "_titlebar"):
+        if self._titlebar is not None:
             self._titlebar.attach_submenu_filter(rank_menu)
 
         from PyQt6.QtCore import QSettings as _QS2
@@ -981,7 +1029,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         from PyQt6.QtGui import QActionGroup
         rule_menu = setting_menu.addMenu("ルール")
         style_qmenu(rule_menu, leaf=True)
-        if hasattr(self, "_titlebar"):
+        if self._titlebar is not None:
             self._titlebar.attach_submenu_filter(rule_menu)
         rules_group = QActionGroup(self)
         rules_group.setExclusive(True)
@@ -1008,7 +1056,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         # に合わせて操作した場合は、プリセット側のチェックを動的に同期する。
         komi_menu = setting_menu.addMenu("コミ")
         style_qmenu(komi_menu, leaf=True)
-        if hasattr(self, "_titlebar"):
+        if self._titlebar is not None:
             self._titlebar.attach_submenu_filter(komi_menu)
         komi_group = QActionGroup(self)
         komi_group.setExclusive(True)
@@ -1071,7 +1119,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         # ── テーマメニュー（設定 配下: ライト / ダーク）──
         tm = setting_menu.addMenu("テーマ")
         style_qmenu(tm, leaf=True)
-        if hasattr(self, "_titlebar"):
+        if self._titlebar is not None:
             self._titlebar.attach_submenu_filter(tm)
         light_action   = QAction("ライト", self)
         dark_action    = QAction("ダーク", self)
@@ -1224,7 +1272,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         # ルール/コミ/テーマ/棋力は「設定」メニューのサブメニューとして集約。
         # サブメニュー位置補正は style_qmenu 内で _install_submenu_positioner
         # が仕込まれるので個別呼び出しは不要。
-        if hasattr(self, "_titlebar"):
+        if self._titlebar is not None:
             # fm: 子に「新規作成」サブメニューを持つので非リーフ
             # vm: 表示メニュー (リーフ、既に style_qmenu 済み)
             # setting_menu: 子サブメニュー (棋力/ルール/コミ/テーマ) を持つので非リーフ
@@ -1283,7 +1331,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         # → _on_comment_overlay_open_done で setFocus する
 
     def _app_event_filter_active(self):
-        return (hasattr(self, "_comment_overlay")
+        return (self._comment_overlay is not None
                 and self._comment_overlay.isVisible())
 
     def mousePressEvent(self, ev):
@@ -1371,7 +1419,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
                 # 2) タイトルバー空き領域ならドラッグ移動
                 #    ただし「メニューがアクティブ中 / 直近に閉じたばかり」なら
                 #    そのクリックは「メニューを閉じる動作」とみなしてドラッグ起動しない。
-                if hasattr(self, "_titlebar"):
+                if self._titlebar is not None:
                     tb = self._titlebar
                     tb_global_top = tb.mapToGlobal(tb.rect().topLeft())
                     tb_rect_global = QRect(tb_global_top, tb.size())
@@ -1414,7 +1462,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
                 and ev.button() == Qt.MouseButton.LeftButton):
             # タイトルバー空き領域のダブルクリックで最大化/復元
             try:
-                if hasattr(self, "_titlebar"):
+                if self._titlebar is not None:
                     gpos = ev.globalPosition().toPoint()
                     tb = self._titlebar
                     tb_global_top = tb.mapToGlobal(tb.rect().topLeft())
@@ -1444,7 +1492,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         #              テキスト入力まで遮断してしまうことがあるため、
         #              キーは focusWidget で判定するのが確実。
         #   - Esc は専用ハンドリングで閉じる(フォーカスがオーバーレイ内でも有効)。
-        if (hasattr(self, "_comment_overlay")
+        if (self._comment_overlay is not None
                 and self._comment_overlay.isVisible()):
             etype = ev.type()
             # Esc キーでオーバーレイを閉じる(内外問わず)
@@ -1486,7 +1534,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
             QEvent.Type.MouseButtonDblClick,
         )
         if (ev.type() in MOUSE_EVENTS
-                and hasattr(self, "_comment_overlay")
+                and self._comment_overlay is not None
                 and self._comment_overlay.isVisible()):
             # ポップアップ(QMenu 等)表示中は「外側クリック=閉じる」判定を
             # スキップする。コメント入力欄の右クリックメニュー項目を選ぶと
@@ -1505,7 +1553,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
             # コメントボタン矩形(グローバル座標): ボタン上クリックは
             # ボタン側 clicked → _toggle_comment_overlay に任せる
             btn_contains = False
-            if hasattr(self, "_navbar") and hasattr(self._navbar, "btn_comment"):
+            if self._navbar is not None and hasattr(self._navbar, "btn_comment"):
                 btn = self._navbar.btn_comment
                 btn_global = btn.mapToGlobal(btn.rect().topLeft())
                 btn_rect_global = QRect(btn_global, btn.size())
@@ -1538,7 +1586,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         # ただしコメントオーバーレイ表示中は転送しない(オーバーレイ内 close ボタン等に
         # フォーカスがある時の矢印キー漏れを防ぐ二重ガード)。
         if ev.type() == QEvent.Type.KeyPress and obj is not self._comment:
-            if (hasattr(self, "_comment_overlay")
+            if (self._comment_overlay is not None
                     and self._comment_overlay.isVisible()):
                 return super().eventFilter(obj, ev)
             self.keyPressEvent(ev)
@@ -1588,7 +1636,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
                     ev.accept()
                     return
             # タイトルバー領域内かつボタン以外ならシステムドラッグ移動
-            if hasattr(self, "_titlebar"):
+            if self._titlebar is not None:
                 tb = self._titlebar
                 tb_rect = tb.geometry()  # outer 内のジオメトリ
                 # タイトルバーの位置(MainWindow座標系)
@@ -1605,7 +1653,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
 
     def mouseDoubleClickEvent(self, ev):
         """タイトルバー空き領域のダブルクリックで最大化/復元。"""
-        if ev.button() == Qt.MouseButton.LeftButton and hasattr(self, "_titlebar"):
+        if ev.button() == Qt.MouseButton.LeftButton and self._titlebar is not None:
             pos = ev.position().toPoint()
             tb = self._titlebar
             tb_rect = tb.geometry()

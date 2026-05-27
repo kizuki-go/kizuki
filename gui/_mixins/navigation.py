@@ -190,13 +190,13 @@ class NavigationMixin:
 
         # ── _refresh_board の「先頭即時 + 後続スロットル」振り分け ──
         # 初回呼び出し用にタイマーを準備
-        if not hasattr(self, "_wheel_refresh_timer") or self._wheel_refresh_timer is None:
+        if self._wheel_refresh_timer is None or self._wheel_refresh_timer is None:
             from PyQt6.QtCore import QTimer
             t = QTimer(self)
             t.setSingleShot(True)
             t.timeout.connect(self._wheel_trailing_refresh)
             self._wheel_refresh_timer = t
-        if not hasattr(self, "_wheel_last_refresh_t"):
+        if self._wheel_last_refresh_t is None:
             self._wheel_last_refresh_t = 0.0
 
         now_t = time.monotonic()
@@ -326,7 +326,7 @@ class NavigationMixin:
         # ToggleBar 側のスイッチを ON にすれば move_numbers_toggled シグナル経由で
         # _on_move_numbers_toggled が呼ばれ、_move_numbers_enabled の更新・永続化・
         # 盤面再描画まで一括で行われる（既に ON の場合はシグナル不発）。
-        if hasattr(self, '_toggle_bar') and not self._toggle_bar._sw_mn.isChecked():
+        if not self._toggle_bar._sw_mn.isChecked():
             self._toggle_bar._sw_mn.setChecked(True)
         else:
             # 既に ON の場合（または ToggleBar 未生成の念のため）は手動で同期
@@ -439,7 +439,7 @@ class NavigationMixin:
         # のままでも _refresh_board で手順番号辞書が空になり、棋譜を開いた
         # 直後に手順が表示されない不具合になる。
         self._move_number_anchor = 0 if self._move_numbers_enabled else None
-        if hasattr(self, "_info"):
+        if self._info is not None:
             self._info.get_graph().clear_data()  # グラフデータをリセット
         self._game_state = GameState(self._game)
         # 盤面サイズを反映（19路以外の棋譜にも対応）
@@ -482,7 +482,7 @@ class NavigationMixin:
 
         # 解析OFFかつキャッシュなしの手に移動した場合のみ_label_scoreをリセット
         # → ハイフン表示（解析ONの場合は前回値保持でチラつき防止）
-        if hasattr(self, "_info"):
+        if self._info is not None:
             graph = self._info.get_graph()
             node_ma = self._node_analyses.get(id(node))
             if node_ma is None and not self._ai_enabled:

@@ -298,7 +298,7 @@ class FileIOMixin:
         """D&D オーバーレイを root 全体に広げて表示する。
         _root_widget の子にしているため、タイトルバーは覆わない。
         """
-        if not hasattr(self, "_drop_overlay"):
+        if self._drop_overlay is None:
             return
         rw, rh = self._root_widget.width(), self._root_widget.height()
         self._drop_overlay.setGeometry(0, 0, rw, rh)
@@ -309,7 +309,7 @@ class FileIOMixin:
         self._drop_overlay.show()
 
     def _hide_drop_overlay(self: "MainWindowProto"):
-        if hasattr(self, "_drop_overlay"):
+        if self._drop_overlay is not None:
             self._drop_overlay.hide()
 
     def dragEnterEvent(self: "MainWindowProto", ev):

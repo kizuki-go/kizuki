@@ -73,7 +73,7 @@ class WindowMgmtMixin:
         except Exception:
             pass
         # エンジン停止
-        if hasattr(self, '_engine') and self._engine:
+        if self._engine is not None:
             try:
                 self._engine.stop_pondering()
                 self._engine.stop()
@@ -141,7 +141,7 @@ class WindowMgmtMixin:
         if anim_target_visible is not None:
             panel_visible = anim_target_visible
         else:
-            panel_visible = (hasattr(self, "_right_col")
+            panel_visible = (self._right_col is not None
                              and self._right_col.isVisible())
 
         # 碁盤エリアの利用可能高さ: rh - ナビバー領域
@@ -177,17 +177,17 @@ class WindowMgmtMixin:
         # 余った縦スペースを上下に等分して上に top_offset を確保する。
         board_block_h = board_h + nb_h_reserve  # 碁盤 + ナビバー領域
         top_offset = max(0, (rh - board_block_h) // 2)
-        if hasattr(self, "_left_col"):
+        if self._left_col is not None:
             self._left_col.setGeometry(0, 0, board_w, rh)
-        if hasattr(self, "_left_stack"):
+        if self._left_stack is not None:
             self._left_stack.setGeometry(0, top_offset, board_w, board_h)
 
         # ── 情報パネル ────────────────────────────────────────────────────
-        if panel_visible and hasattr(self, "_right_col"):
+        if panel_visible and self._right_col is not None:
             fp_h = max(200, rh - fp_m * 2)
             self._right_col.setGeometry(right_x, fp_m, fp_w, fp_h)
             self._right_col.raise_()
-            if hasattr(self, "_cards_scroll"):
+            if self._cards_scroll is not None:
                 self._cards_scroll.setMaximumWidth(_fp_inner_w)
                 w = self._cards_scroll.widget()
                 if w:
@@ -199,14 +199,14 @@ class WindowMgmtMixin:
         # これによりスライダーが碁盤の罫線にもう少し近づいて見える。
         # 値は NavBar.NB_OVERLAP として定数化。
         nb_overlap = NavBar.NB_OVERLAP
-        if hasattr(self, "_navbar"):
+        if self._navbar is not None:
             nb_h = NavBar.NB_HEIGHT
             nb_y = top_offset + board_h - nb_overlap  # 碁盤に食い込ませる
             self._navbar.setGeometry(0, nb_y, board_w, nb_h)
             self._navbar.raise_()
 
         # ── コメントオーバーレイ（ナビバーの直上） ───────────────────────
-        if hasattr(self, "_comment_overlay"):
+        if self._comment_overlay is not None:
             ov_h = 100
             ov_w = board_w - 60  # 碁盤エリア幅 - 60px
             ov_x = (board_w - ov_w) // 2  # 中央揃え
@@ -218,12 +218,12 @@ class WindowMgmtMixin:
                 self._comment_overlay.setGeometry(ov_x, ov_y, ov_w, ov_h)
             self._comment_overlay.raise_()
             # フェードオーバーレイをコメントオーバーレイ全体に追従させる
-            if hasattr(self, "_comment_fade_overlay"):
+            if self._comment_fade_overlay is not None:
                 self._comment_fade_overlay.setGeometry(0, 0, ov_w, ov_h)
                 self._comment_fade_overlay.raise_()
                 self._comment_fade_overlay.update_visibility()
             # 閉じるボタンを右上に配置(フェードより手前)
-            if hasattr(self, "_comment_close_btn"):
+            if self._comment_close_btn is not None:
                 btn = self._comment_close_btn
                 btn.move(ov_w - btn.width() - SP_XS, SP_XS)
                 btn.raise_()
@@ -231,7 +231,7 @@ class WindowMgmtMixin:
         # ── D&D オーバーレイの追従 ─────────────────────────────
         # _root_widget の子なのでサイズ更新だけ行えばよい(タイトルバーは
         # 自動で除外される)。表示中のときのみカード位置も再計算する。
-        if hasattr(self, "_drop_overlay"):
+        if self._drop_overlay is not None:
             self._drop_overlay.setGeometry(0, 0, rw, rh)
             if self._drop_overlay.isVisible():
                 cw = self._drop_card.width()
@@ -346,7 +346,7 @@ class WindowMgmtMixin:
         # アニメ中フラグ
         self._anim_in_progress = True
         # タイトルバーアイコンは即時更新(視覚的な応答性のため)
-        if hasattr(self, "_titlebar"):
+        if self._titlebar is not None:
             self._titlebar.update_max_restore_icon(new_max_state)
 
         # ── 不透明オーバーレイを作成(背景色で塗りつぶし) ──
@@ -383,7 +383,7 @@ class WindowMgmtMixin:
         # _titlebar とオーバーレイは _root_widget の兄弟(centralWidget の子)
         # なので、この設定の影響を受けず引き続き描画される。
         # アニメ完了時に setUpdatesEnabled(True) + update() で復帰する。
-        if hasattr(self, "_root_widget") and self._root_widget is not None:
+        if self._root_widget is not None:
             self._root_widget.setUpdatesEnabled(False)
 
         # ── ジオメトリアニメ(300ms、OutCubic) ──
@@ -426,7 +426,7 @@ class WindowMgmtMixin:
         # オーバーレイはまだ完全不透明で被さっているので、再描画中の
         # ちらつきは見えない(これからフェードアウトしていく間に下に
         # 整った中身が表示される)。
-        if hasattr(self, "_root_widget") and self._root_widget is not None:
+        if self._root_widget is not None:
             self._root_widget.setUpdatesEnabled(True)
             self._root_widget.update()
 
@@ -506,7 +506,7 @@ class WindowMgmtMixin:
         """
         if getattr(self, "_panel_anim_running", False):
             return
-        if not hasattr(self, "_right_col"):
+        if self._right_col is None:
             return
 
         # 現在の状態を反転
@@ -515,7 +515,7 @@ class WindowMgmtMixin:
         self._right_panel_collapsed = new_collapsed
 
         # アイコン即座に更新
-        if hasattr(self, "_titlebar"):
+        if self._titlebar is not None:
             self._titlebar.update_panel_toggle_icon(is_open=not new_collapsed)
 
         # QSettings に保存
@@ -638,7 +638,7 @@ class WindowMgmtMixin:
             self._apply_min_window_size(panel_open=False)
 
         # 現在のジオメトリを保持
-        cur_left_stack_geo = self._left_stack.geometry() if hasattr(self, "_left_stack") else None
+        cur_left_stack_geo = self._left_stack.geometry() if self._left_stack is not None else None
         if cur_left_stack_geo is None:
             # フォールバック: アニメせず即時切替
             self._right_col.setVisible(not new_collapsed)
@@ -659,12 +659,12 @@ class WindowMgmtMixin:
         self._panel_anim_target_visible = (not new_collapsed)
         # 一度通常の _place_panels を呼んで「最終形のジオメトリ」を取得する
         # → 直後にアニメ開始時点に戻すため、現状のジオメトリを保存しておく
-        cur_lc_geo = self._left_col.geometry() if hasattr(self, "_left_col") else None
-        cur_nb_geo = self._navbar.geometry() if hasattr(self, "_navbar") else None
+        cur_lc_geo = self._left_col.geometry() if self._left_col is not None else None
+        cur_nb_geo = self._navbar.geometry() if self._navbar is not None else None
         self._place_panels()
         target_left_stack_geo = self._left_stack.geometry()
-        target_lc_geo = self._left_col.geometry() if hasattr(self, "_left_col") else None
-        target_nb_geo = self._navbar.geometry() if hasattr(self, "_navbar") else None
+        target_lc_geo = self._left_col.geometry() if self._left_col is not None else None
+        target_nb_geo = self._navbar.geometry() if self._navbar is not None else None
         # アニメ開始時点(現状)のジオメトリに戻す
         # ※ _left_stack だけでなく _left_col / _navbar も戻さないと、最終形の
         #    全幅で配置されたままになり、パネルが裏に隠れてフェードが見えなくなる。
@@ -681,14 +681,14 @@ class WindowMgmtMixin:
         # 開く時:   パネルを前面に出す。フェードインしながら碁盤の上に正しく
         #          描画される。
         if new_collapsed:
-            if hasattr(self, "_left_col"):
+            if self._left_col is not None:
                 self._left_col.raise_()
-            if hasattr(self, "_left_stack"):
+            if self._left_stack is not None:
                 self._left_stack.raise_()
-            if hasattr(self, "_navbar"):
+            if self._navbar is not None:
                 self._navbar.raise_()
         else:
-            if hasattr(self, "_right_col"):
+            if self._right_col is not None:
                 self._right_col.raise_()
 
         self._panel_anim_running = True
@@ -702,7 +702,7 @@ class WindowMgmtMixin:
 
         # ── _left_col(碁盤エリアの背景)の geometry も連動させる ──
         anims = [ls_anim]
-        if hasattr(self, "_left_col"):
+        if self._left_col is not None:
             cur_lc_geo = self._left_col.geometry()
             target_lc_geo = QRect(0, 0, target_left_stack_geo.width(), cur_lc_geo.height())
             lc_anim = QPropertyAnimation(self._left_col, b"geometry")
@@ -713,7 +713,7 @@ class WindowMgmtMixin:
             anims.append(lc_anim)
 
         # ── ナビバーも碁盤幅に合わせて連動 ──
-        if hasattr(self, "_navbar") and self._navbar.isVisible():
+        if self._navbar is not None and self._navbar.isVisible():
             cur_nb_geo = self._navbar.geometry()
             # ナビバーは碁盤エリア下端中央(0オフセットで board_w 全幅)
             target_nb_geo = QRect(0, cur_nb_geo.y(),
@@ -744,7 +744,7 @@ class WindowMgmtMixin:
         cur_panel_geo = self._right_col.geometry()
         # 画面外右側の位置(rw 相当を root_widget の右端から取得)
         rw_outside = (self._root_widget.width()
-                      if hasattr(self, "_root_widget") and self._root_widget
+                      if self._root_widget is not None
                       else cur_left_stack_geo.x() + cur_left_stack_geo.width())
         if new_collapsed:
             # 閉じる: 現在位置から画面外へスライドアウト
@@ -794,23 +794,23 @@ class WindowMgmtMixin:
         target_vis = getattr(self, "_panel_anim_target_visible", None)
         self._panel_anim_target_visible = None
         # 閉じた場合: ここで初めて実際に非表示にする
-        if hasattr(self, "_right_col") and target_vis is False:
+        if self._right_col is not None and target_vis is False:
             self._right_col.setVisible(False)
         # 開いた場合: 最小ウィンドウサイズを「開いた状態」に上げる
         # (閉じる時はアニメ前に既に下げているのでここでの操作不要)
         if target_vis is True:
             self._apply_min_window_size(panel_open=True)
         # opacity effect を解除して描画パイプラインの常時負荷を回避
-        if hasattr(self, "_panel_opacity_effect") and self._panel_opacity_effect is not None:
+        if self._panel_opacity_effect is not None:
             try:
-                if hasattr(self, "_right_col"):
+                if self._right_col is not None:
                     self._right_col.setGraphicsEffect(None)
             except Exception:
                 pass
             self._panel_opacity_effect = None
         # アニメ中 False にしていた autoFillBackground を True に戻す
         # (角丸の外側に旧色が残らないようにするため)。
-        if hasattr(self, "_right_col"):
+        if self._right_col is not None:
             self._right_col.setAutoFillBackground(True)
         self._place_panels()
 
@@ -882,7 +882,7 @@ class WindowMgmtMixin:
         # 最大化アニメと同じ。ジオメトリ変化に伴う子ウィジェットの
         # resizeEvent / paintEvent を抑制し、ガタつきの原因になる
         # CPU/GPU 負荷とフレームスキップを回避する。
-        if hasattr(self, "_root_widget") and self._root_widget is not None:
+        if self._root_widget is not None:
             self._root_widget.setUpdatesEnabled(False)
 
         # ── アニメーション(200ms / InCubic) ───────────────────────────
@@ -927,15 +927,15 @@ class WindowMgmtMixin:
         # OS の最小化を呼ぶ
         self.showMinimized()
         # 元のジオメトリ・透明度に戻す(タスクバーから復元した時にこの状態で出る)
-        if hasattr(self, "_pre_minimize_geometry"):
+        if self._pre_minimize_geometry is not None:
             self.setGeometry(self._pre_minimize_geometry)
-        if hasattr(self, "_pre_minimize_opacity"):
+        if self._pre_minimize_opacity is not None:
             self.setWindowOpacity(self._pre_minimize_opacity)
         else:
             self.setWindowOpacity(1.0)
 
         # _root_widget の再描画を再開
-        if hasattr(self, "_root_widget") and self._root_widget is not None:
+        if self._root_widget is not None:
             self._root_widget.setUpdatesEnabled(True)
             self._root_widget.update()
 
@@ -1097,7 +1097,7 @@ class WindowMgmtMixin:
         時点で setGraphicsEffect(None) で外す。
         """
         try:
-            if hasattr(self, "_root_widget"):
+            if self._root_widget is not None:
                 self._root_widget.setGraphicsEffect(None)
             self._root_opacity_effect = None
         except Exception:
@@ -1141,7 +1141,7 @@ class WindowMgmtMixin:
         from PyQt6.QtCore import QEvent
         super().changeEvent(ev)
         if ev.type() == QEvent.Type.WindowStateChange:
-            if hasattr(self, "_titlebar"):
+            if self._titlebar is not None:
                 # 自前最大化フラグ優先で判定
                 is_max = self._is_pseudo_maximized()
                 self._titlebar.update_max_restore_icon(is_max)
@@ -1214,7 +1214,7 @@ class WindowMgmtMixin:
             self._min_overlay = None
 
         # ── 内部再描画を停止(最大化・最小化アニメと同じ) ──────────────
-        if hasattr(self, "_root_widget") and self._root_widget is not None:
+        if self._root_widget is not None:
             self._root_widget.setUpdatesEnabled(False)
 
         # ── ウィンドウを開始状態にセット ────────────────────────────────
@@ -1253,7 +1253,7 @@ class WindowMgmtMixin:
         3. アニメ中フラグ解除
         """
         # _root_widget の再描画を再開
-        if hasattr(self, "_root_widget") and self._root_widget is not None:
+        if self._root_widget is not None:
             self._root_widget.setUpdatesEnabled(True)
             self._root_widget.update()
 
@@ -1323,7 +1323,7 @@ class WindowMgmtMixin:
         ty = max(vbar.minimum(), min(int(target_y), vbar.maximum()))
 
         # 既存のスクロールアニメ(同じ scroll_area)を停止 → 破棄
-        if not hasattr(self, "_scroll_anims"):
+        if self._scroll_anims is None:
             self._scroll_anims = {}
         key = id(scroll_area)
         prev = self._scroll_anims.get(key)
@@ -1427,7 +1427,7 @@ class WindowMgmtMixin:
         ty = max(vbar.minimum(), min(int(target_y), vbar.maximum()))
 
         # アニメ保持用辞書
-        if not hasattr(self, "_scroll_anims"):
+        if self._scroll_anims is None:
             self._scroll_anims = {}
         key = id(scroll_area)
         prev = self._scroll_anims.get(key)

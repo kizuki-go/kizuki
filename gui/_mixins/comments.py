@@ -157,7 +157,7 @@ class CommentsMixin:
         self._comment_anim_running = False
         self._comment_anim_kind = None
         # フォーカスをテキストエディットに
-        if hasattr(self, "_comment_textedit"):
+        if self._comment_textedit is not None:
             self._comment_textedit.setFocus()
 
     def _cancel_comment_overlay_anim(self: "MainWindowProto"):
@@ -187,7 +187,7 @@ class CommentsMixin:
         済ませておく。これにより実際にユーザーがコメントボタンを押した時の
         初回表示も 2回目以降と同じ速度(<1ms)で開く。
         """
-        if not hasattr(self, "_comment_overlay"):
+        if self._comment_overlay is None:
             return
         ov = self._comment_overlay
         # 元の geometry を保存(_place_panels 後で正しい位置にあるはず)
