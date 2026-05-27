@@ -31,14 +31,43 @@ pip install PyQt6 pyqtgraph
 ```
 files/
 ├── 囲碁AI解析.bat        # 起動用バッチ
-├── gui/
-│   └── main_window.py    # メインGUI
 ├── core/                 # KataGoエンジン制御・棋譜パーサ・解析ロジック
+├── gui/                  # GUI レイヤ (PyQt6)
+│   ├── main_window.py    # MainWindow クラス本体 (6 Mixin 合成)
+│   ├── theme.py          # Theme / 配色 / SP_* PAD_* 等の UI 定数
+│   ├── fonts.py          # F() Fmono() Font_XS..XXL FontMono_*
+│   ├── icons.py          # SVG 生成・QSS 生成・make_icon
+│   ├── infra.py          # Profiler / SoundPlayer / BlunderInfo /
+│   │                     #   TranslucentWidget / 棋力閾値
+│   ├── dialogs.py        # ColorAdjustmentDialog / _UnsavedChangesDialog /
+│   │                     #   _FirstLaunchRankDialog / _WarningIconWidget
+│   ├── menus.py          # style_qmenu / _SubMenuPositioner / _KomiCustomWidget
+│   ├── startup.py        # main() / _SplashScreen / KataGo 起動シーケンス
+│   ├── widgets/          # UI コンポーネント
+│   │   ├── common.py     # FlatSlider / _RankItemDelegate /
+│   │   │                 #   _ScrollFadeOverlay / _AlwaysAcceptWheelTextEdit
+│   │   ├── board.py      # BoardWidget / BoardContainer
+│   │   ├── panels.py     # ScoreBoard / InfoPanel / MoveInfoCard /
+│   │   │                 #   BadgeWidget / MetricLabel / _StoneIcon
+│   │   ├── branchtree.py # BranchTreeWidget / _TreeEdgeFadeOverlay
+│   │   ├── graph.py      # WinRateGraph / 軸 / オーバーレイ
+│   │   ├── titlebar.py   # _CustomTitleBar
+│   │   ├── navbar.py     # NavBar / ToggleSwitch / ToggleBar / _HelpPopover
+│   │   └── welcome.py    # WelcomePane / _WelcomeCard / _NewGameCard
+│   ├── _mixins/          # MainWindow を構成する 6 つの Mixin
+│   │   ├── _types.py     # MainWindowProto (TYPE_CHECKING 専用)
+│   │   ├── window_mgmt.py
+│   │   ├── navigation.py
+│   │   ├── file_io.py
+│   │   ├── engine_ctrl.py
+│   │   ├── comments.py
+│   │   └── theme_ctrl.py
+│   ├── assets/           # ロゴ SVG (light/dark)
+│   └── cache/            # 起動時に生成される画像キャッシュ (テクスチャ等)
 ├── katago/
 │   ├── katago.exe        # KataGo本体（OpenCL版を同梱）
 │   ├── analysis.cfg      # 解析エンジン設定
 │   └── models/           # KataGoモデル（.bin.gz）を置く場所
-├── fonts/                # 表示用フォント
 ├── sounds/               # 着手・打ち上げ効果音
 └── demo.sgf              # 起動時に読み込まれるサンプル棋譜
 ```
