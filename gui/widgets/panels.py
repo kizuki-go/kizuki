@@ -1308,6 +1308,25 @@ class MoveInfoCard(QWidget):
         super().__init__()
         self.setStyleSheet("background:transparent;")
 
+        # ======================================================================
+        # Phase 7: メソッドで参照される子ウィジェット/状態属性の事前初期化。
+        # set_tree / set_mode_message / 解析結果反映 などで後から代入される
+        # ものは None で先に置き、`hasattr(self, "_x")` の代わりに
+        # `self._x is not None` で判定できるようにする。
+        # ======================================================================
+        self._badge = None
+        self._body_for_msg = None
+        self._fade_left = None
+        self._inner_tree = None
+        self._metric_div = None
+        self._metric_sep = None
+        self._missing_msg = None
+        self._mode_show_message = False
+        self._move_lbl = None
+        self._sl_card = None
+        self._tree_scroll = None
+        self._wr_card = None
+
         # ── カード外枠（_make_card と同じスタイル）──
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -1506,15 +1525,15 @@ class MoveInfoCard(QWidget):
         """body のリサイズ時に前手未解析メッセージを追従させる。
         既存のフェードオーバーレイ更新も同じ eventFilter 内で処理する。"""
         # body のリサイズ → メッセージのジオメトリ追従
-        if (hasattr(self, "_body_for_msg")
+        if (self._body_for_msg is not None
             and obj is self._body_for_msg
             and ev.type() == QEvent.Type.Resize
-            and hasattr(self, "_missing_msg")):
+            and self._missing_msg is not None):
             self._missing_msg.setGeometry(
                 0, 0, self._metrics_body.width(), self._metrics_body.height())
         # ツリー scroll viewport のリサイズ → フェードオーバーレイ更新
-        if (hasattr(self, "_fade_left")
-            and hasattr(self, "_tree_scroll")
+        if (self._fade_left is not None
+            and self._tree_scroll is not None
             and obj is self._tree_scroll.viewport()):
             if ev.type() == QEvent.Type.Resize:
                 self._update_tree_fade_overlays()
@@ -1545,7 +1564,7 @@ class MoveInfoCard(QWidget):
 
     def _update_tree_fade_overlays(self):
         """フェードオーバーレイの位置・サイズ・表示状態を更新する。"""
-        if not hasattr(self, "_fade_left") or self._inner_tree is None:
+        if self._fade_left is None or self._inner_tree is None:
             return
         viewport = self._tree_scroll.viewport()
         vw = viewport.width()
@@ -1621,7 +1640,7 @@ class MoveInfoCard(QWidget):
         切替時は QGraphicsOpacityEffect でクロスフェードする。
         """
         # 初期状態の同期(初回呼び出し時 or 何らかの理由で属性未設定の時)
-        if not hasattr(self, "_mode_show_message"):
+        if self._mode_show_message is None:
             self._mode_show_message = None  # 未確定
 
         # 既に同じ表示状態ならアニメ不要
@@ -1827,19 +1846,19 @@ class MoveInfoCard(QWidget):
             f"}}"
         )
         # バッジ色をテーマ/色調整値で即時再計算(アニメは挟まない)
-        if hasattr(self, "_badge") and self._badge:
+        if self._badge is not None:
             self._badge.refresh_colors()
         # 情報行とメトリクス行の間の水平仕切り線
-        if hasattr(self, "_metric_div") and self._metric_div:
+        if self._metric_div is not None:
             self._metric_div.setStyleSheet(
                 f"background:{T().BORDER2.name()}; border:none;")
         # 前手未解析メッセージ
-        if hasattr(self, "_missing_msg") and self._missing_msg:
+        if self._missing_msg is not None:
             self._missing_msg.setStyleSheet(
                 f"color:{T().TEXT2.name()}; background:transparent;"
             )
         # 分岐ツリーのスクロールエリア
-        if hasattr(self, "_tree_scroll"):
+        if self._tree_scroll is not None:
             self._tree_scroll.setStyleSheet(
                 f"QScrollArea {{ border:none; background:{T().PANEL.name()}; border-radius:4px; }}"
                 f"QScrollBar:horizontal {{ background:transparent; height:6px; margin:0; }}"
@@ -1864,7 +1883,7 @@ class MoveInfoCard(QWidget):
             _ts_pal.setColor(_QPalette.ColorRole.Base, T().PANEL)
             self._tree_scroll.viewport().setPalette(_ts_pal)
         # BranchTreeWidget 自体
-        if hasattr(self, "_inner_tree") and self._inner_tree:
+        if self._inner_tree is not None:
             self._inner_tree.setStyleSheet(f"background:{T().PANEL.name()};")
             self._inner_tree.update()
         # メトリクスラベルの補助テキスト色
@@ -1882,21 +1901,21 @@ class MoveInfoCard(QWidget):
                     lbl.setStyleSheet(f"color:{T().TEXT2.name()}; background:transparent;")
         # _move_lbl はループで除外したので、ここで TEXT 色に明示再適用して
         # テーマ切替に追従させる。
-        if hasattr(self, "_move_lbl") and self._move_lbl is not None:
+        if self._move_lbl is not None:
             self._move_lbl.setStyleSheet(
                 f"color:{T().TEXT.name()}; background:transparent;"
             )
         # 勝率変化・目差変化の値ラベル(MetricLabel)の色をテーマ追従させる
         # (ハイフン表示中のみ。blunder色等はそのまま維持)
-        if hasattr(self, "_wr_card") and self._wr_card.get("val"):
+        if self._wr_card is not None and self._wr_card.get("val"):
             self._wr_card["val"].update_theme()
-        if hasattr(self, "_sl_card") and self._sl_card.get("val"):
+        if self._sl_card is not None and self._sl_card.get("val"):
             self._sl_card["val"].update_theme()
         # 勝率変化・目差変化の縦区切り線
-        if hasattr(self, "_metric_sep"):
+        if self._metric_sep is not None:
             self._metric_sep.setStyleSheet(f"background:{T().BORDER.name()};")
         # フェードオーバーレイ（パネル色が変わるので再描画）
-        if hasattr(self, "_fade_left"):
+        if self._fade_left is not None:
             self._fade_left.update()
             self._fade_right.update()
             self._fade_top.update()
