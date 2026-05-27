@@ -22,7 +22,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QScrollArea,
+    QApplication, QWidget, QScrollArea, QMainWindow,
     QGraphicsEffect, QGraphicsOpacityEffect,
 )
 
@@ -1006,7 +1006,10 @@ class WindowMgmtMixin:
         group.addAnimation(fade)
         group.addAnimation(shrink)
         # アニメ完了後にウィンドウを閉じる
-        group.finished.connect(lambda: super(MainWindow, self).close())
+        # アニメ完了後の close は QMainWindow.close を直接呼んで closeEvent
+        # ループを避ける (元コードは super(MainWindow, self).close() — Mixin
+        # 移動で MainWindow がスコープ外になったため明示形に変更)
+        group.finished.connect(lambda: QMainWindow.close(self))
         self._close_anim = group  # GC対策
         group.start()
 
