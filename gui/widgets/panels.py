@@ -656,8 +656,8 @@ class InfoPanel(QWidget):
                     f"border-radius:12px;}}"
                 )
         self._scoreboard.update()
-        if hasattr(self, "_graph"):
-            self._graph.update_theme()
+        # _graph is always assigned in __init__, no guard needed.
+        self._graph.update_theme()
 
 class MetricLabel(QWidget):
     """

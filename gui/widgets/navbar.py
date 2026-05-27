@@ -301,6 +301,11 @@ class NavBar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        # Phase 7: コメントボタン参照を事前に None で置き、テーマ適用時の
+        # hasattr() ガードを `is not None` で済むようにする。
+        self.btn_comment = None
+
         self.setFixedHeight(self.NB_HEIGHT)
         self.setObjectName("nav_card")
         self.setStyleSheet(
@@ -509,7 +514,7 @@ class NavBar(QWidget):
                 btn._normal_icon = ic
                 btn._hover_icon = ic
                 btn.setIcon(ic)
-        if hasattr(self, "btn_comment"):
+        if self.btn_comment is not None:
             self._apply_comment_btn_style()
         # ボタン群の palette を新テーマの BG 色に更新する
         # (デフォルトの黒 #000000 が残ると明色テーマで一瞬黒が見える)

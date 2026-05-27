@@ -116,6 +116,16 @@ class WinRateGraph(QWidget):
 
     def __init__(self):
         super().__init__()
+
+        # ======================================================================
+        # Phase 7: _setup() / set_data_sparse() で後から代入される子要素を
+        # 事前に None で置く。これにより hasattr() ガードを `is not None`
+        # で置き換えられる。
+        # ======================================================================
+        self._overlay = None
+        self._pw = None
+        self._score_label = None
+
         self.score_leads = []
         self.current_move = 0
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -333,14 +343,14 @@ class WinRateGraph(QWidget):
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
-        if hasattr(self, "_overlay") and hasattr(self, "_pw"):
+        if self._overlay is not None and self._pw is not None:
             self._overlay.setGeometry(self._pw.rect())
             from PyQt6.QtCore import QTimer
             QTimer.singleShot(50, self._update_y_labels)
 
     def _update_y_labels(self):
         """Y軸の 黒+N / 0 / 白+N ラベル座標を計算してオーバーレイに渡す。"""
-        if not hasattr(self, "_overlay") or not hasattr(self, "_pw"):
+        if self._overlay is None or self._pw is None:
             return
         vb = self._pw.getPlotItem().getViewBox()
         labels = []
@@ -408,7 +418,7 @@ class WinRateGraph(QWidget):
         if self._use_pg:
             self._curve_black.setData([], [])
             self._curve_white.setData([], [])
-        if hasattr(self, "_score_label"):
+        if self._score_label is not None:
             self._score_label.hide()
         self.update()
 
@@ -649,7 +659,7 @@ class WinRateGraph(QWidget):
         # ラベル X 位置の追従に使うインデックス
         self._label_x_idx = idx
 
-        if not hasattr(self, "_score_label"):
+        if self._score_label is None:
             self._update_y_labels()
             return
 

@@ -50,6 +50,12 @@ class ColorAdjustmentDialog(QDialog):
     LIGHT_CATEGORIES = ["best", "good", "inaccuracy", "mistake", "blunder", "None"]
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        # Phase 7: 履歴ボタンは後段で生成。先に None で置いて
+        # _update_history_buttons の hasattr() ガードを `is not None` にする。
+        self._btn_undo = None
+        self._btn_redo = None
+
         self.setWindowTitle("カラー調整 (開発用)")
         self.resize(820, 720)
 
@@ -271,9 +277,9 @@ class ColorAdjustmentDialog(QDialog):
 
     def _update_history_buttons(self):
         """戻る・進むボタンの有効/無効を更新。"""
-        if hasattr(self, "_btn_undo"):
+        if self._btn_undo is not None:
             self._btn_undo.setEnabled(len(self._undo_stack) > 0)
-        if hasattr(self, "_btn_redo"):
+        if self._btn_redo is not None:
             self._btn_redo.setEnabled(len(self._redo_stack) > 0)
 
     def _open_picker(self, mode: str, cat: str, role: str):
@@ -554,6 +560,11 @@ class _UnsavedChangesDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        # Phase 7: × ボタンは後段で生成。先に None で置いて
+        # _reposition_close_x の hasattr() ガードを `is not None` にする。
+        self._close_x_btn = None
+
         from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QWidget
         self.setWindowTitle("Kizuki")
         # フレームレス + 半透明背景でアプリ全体のスタイルに馴染ませる。
@@ -741,7 +752,7 @@ class _UnsavedChangesDialog(QDialog):
 
     def _reposition_close_x(self):
         """× ボタンを _container の右上 (上 4, 右 4) に配置する。"""
-        if not hasattr(self, "_close_x_btn"):
+        if self._close_x_btn is None:
             return
         cw = self._container.width()
         margin = 4
