@@ -39,6 +39,7 @@ from gui.widgets.navbar import NavBar
 from gui.widgets.welcome import _WelcomeCard
 from gui.widgets.common import _RankItemDelegate, FlatSlider
 from gui.dialogs import ColorAdjustmentDialog
+from gui.infra import _profile_method
 
 
 class ThemeCtrlMixin:
@@ -395,6 +396,7 @@ class ThemeCtrlMixin:
             f"QPushButton:hover{{background:transparent;color:{color};}}"
         )
 
+    @_profile_method("_set_welcome_mode")
     def _set_welcome_mode(self: "MainWindowProto", welcome: bool):
         """ウェルカム画面 ↔ 碁盤画面の表示モードを切り替える。
         ウェルカム時は右カラム（情報パネル）も非表示にして、最初の選択
