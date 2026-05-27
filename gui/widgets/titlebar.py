@@ -9,23 +9,17 @@ style_qmenu (現状 main_window.py、Phase 4 で gui.menus に移動) への
 - _CustomTitleBar: アプリ全体のフレームレスタイトルバー
 """
 from __future__ import annotations
-from datetime import datetime
-from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QPushButton, QHBoxLayout, QLabel, QMenu, QMainWindow,
 )
-from PyQt6.QtCore import (
-    Qt, pyqtSignal, QEvent, QPoint, QRect, QRectF, QSize,
-    QDateTime, QByteArray,
-)
+from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QPoint, QRect, QSize, QDateTime, QByteArray
 from PyQt6.QtGui import (
     QPainter, QColor, QIcon, QPixmap,
 )
 from PyQt6.QtSvg import QSvgRenderer
 
 from gui.theme import T, SP_MD, SP_LG
-from gui.fonts import F
 from gui.icons import make_icon
 
 

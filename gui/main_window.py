@@ -3,24 +3,26 @@
 License: MIT
 """
 from __future__ import annotations
-import sys, logging, tempfile, time
+import sys, logging
 from pathlib import Path
 from typing import Optional
 
 try:
     from PyQt6.QtWidgets import (
-        QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-        QPushButton, QLabel, QFileDialog, QSlider, QTextEdit,
-        QStatusBar, QFrame, QSizePolicy, QScrollArea, QComboBox,
-        QDialog, QStyledItemDelegate, QStyle,
+        QApplication,
+        QMainWindow,
+        QWidget,
+        QVBoxLayout,
+        QPushButton,
+        QLabel,
+        QFileDialog,
+        QTextEdit,
+        QStatusBar,
+        QSizePolicy,
+        QScrollArea,
     )
-    from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRectF, QSize, QRect, QEvent, QObject, QStandardPaths, QThread, QByteArray
-    from PyQt6.QtGui import (
-        QPainter, QColor, QPen, QBrush, QFont, QPainterPath, QPainterPathStroker,
-        QAction, QKeySequence, QLinearGradient, QRadialGradient, QImage,
-        QFontDatabase, QPixmap, QIcon,
-    )
-    from PyQt6.QtSvg import QSvgRenderer
+    from PyQt6.QtCore import Qt, pyqtSignal, QRect, QEvent, QObject
+    from PyQt6.QtGui import QAction, QKeySequence
 except ImportError:
     print("pip install PyQt6 pyqtgraph"); sys.exit(1)
 
@@ -30,60 +32,28 @@ except ImportError:
     pg = None
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from core.sgf_parser import (
-    SGFGame, SGFNode, load_sgf, save_sgf, parse_sgf,
-    sgf_coord_to_pos, pos_to_sgf_coord, sgf_coord_to_human,
-)
+from core.sgf_parser import SGFGame, SGFNode
 from core.katago_engine import KataGoEngine, AnalysisResult
 from core.game_state import GameState
 from core.analyzer import MoveAnalysis
 
-from gui.theme import (
-    Theme, T, _theme,
-    EVAL_COLORS, LIGHT_BLUNDER_COLORS, COLS,
-    SP_XS, SP_SM, SP_MD, SP_LG, SP_XL,
-    R_XS, R_SM, R_MD, R_LG, R_PILL,
-    PAD_CARD, PAD_TIGHT, PAD_NAV, PAD_ICON,
-    SPACING_ROW,
-)
-from gui.fonts import (
-    F, Fmono,
-    Font_XS, Font_SM, Font_MD, Font_LG, Font_XL, Font_XXL,
-    FontMono_XS, FontMono_SM, FontMono_MD, FontMono_LG, FontMono_XL, FontMono_XXL,
-)
-from gui.icons import (
-    _rounded_check_svg, _get_check_mark_path,
-    _rank_check_svg_bold, _get_rank_check_mark_path,
-    _chevron_down_svg, _get_chevron_down_path,
-    menu_qss, rank_list_qss, statusbar_qss,
-    icon_button_qss, install_icon_hover_color_swap,
-    make_icon,
-)
-from gui.infra import (
-    _profiler, _profile, _profile_method,
-    set_player_rank, get_current_thresholds,
-    BlunderInfo, eval_badge_tuple,
-    SoundPlayer, TranslucentWidget,
-)
+from gui.theme import T, _theme, SP_XS, SP_SM, SP_MD, SP_LG, PAD_CARD, SPACING_ROW
+from gui.icons import menu_qss, rank_list_qss, statusbar_qss, icon_button_qss
+from gui.infra import set_player_rank, SoundPlayer, TranslucentWidget
 from gui.widgets.common import (
     _RankItemDelegate,
-    SLIDER_HEIGHT, SLIDER_HANDLE,
+    SLIDER_HEIGHT,
     FlatSlider,
     _ScrollFadeOverlay,
     _AlwaysAcceptWheelTextEdit,
 )
 from gui.widgets.board import BoardWidget, BoardContainer
-from gui.widgets.graph import ScoreLeadAxis, IntegerBottomAxis, _GraphLabelOverlay, WinRateGraph
 from gui.widgets.titlebar import _CustomTitleBar
-from gui.widgets.navbar import _HelpPopover, ToggleSwitch, ToggleBar, NavBar
-from gui.widgets.welcome import WelcomePane, _WelcomeCard, _NewGameCard
-from gui.widgets.panels import (
-    ScoreBoard, _make_card, InfoPanel, MetricLabel,
-    BadgeWidget, _StoneIcon, _CrossFadeLabel, MoveInfoCard,
-)
-from gui.widgets.branchtree import _TreeEdgeFadeOverlay, BranchTreeWidget
-from gui.dialogs import ColorAdjustmentDialog, _WarningIconWidget, _UnsavedChangesDialog, _FirstLaunchRankDialog
-from gui.menus import style_qmenu, _SubMenuPositioner, _install_submenu_positioner, _KomiCustomWidget
+from gui.widgets.navbar import ToggleSwitch, ToggleBar, NavBar
+from gui.widgets.welcome import WelcomePane, _WelcomeCard
+from gui.widgets.panels import InfoPanel, MetricLabel, MoveInfoCard
+from gui.widgets.branchtree import BranchTreeWidget
+from gui.menus import style_qmenu, _install_submenu_positioner, _KomiCustomWidget
 
 from gui._mixins.theme_ctrl import ThemeCtrlMixin
 from gui._mixins.comments import CommentsMixin
@@ -1076,7 +1046,6 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         # ・− / + で値だけ調整(コミは確定しない、メニューは開いたまま)
         # ・ウィジェット領域(ラベル/値ラベル等、ボタン以外)をクリックすると
         #   現在のウィジェット値で確定 → _on_komi_changed → メニュー閉じる
-        from PyQt6.QtGui import QAction as _QA
         from PyQt6.QtWidgets import QWidgetAction
         # 「その他」ウィジェットの初期表示値:
         # ・現在値がプリセット外(= 起動時に「その他」経由扱い): 現在値を表示

@@ -20,10 +20,7 @@ if TYPE_CHECKING:
 from PyQt6.QtCore import (
     Qt, QPoint, QSettings, QDateTime, QVariantAnimation,
 )
-from PyQt6.QtWidgets import (
-    QApplication, QMenu, QSlider, QListWidget, QAbstractItemView,
-    QWidgetAction,
-)
+from PyQt6.QtWidgets import QMenu, QSlider, QListWidget, QAbstractItemView, QWidgetAction
 
 from core.katago_engine import KataGoEngine
 from core.analyzer import MoveAnalysis

@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 
 from gui.theme import T, SP_XS, R_MD
 from gui.widgets.navbar import NavBar
+from gui.infra import _profiler
 
 
 class WindowMgmtMixin:

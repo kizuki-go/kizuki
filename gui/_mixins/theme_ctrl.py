@@ -31,7 +31,6 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QPalette, QPixmap
 
-import gui.theme as _theme_module
 from gui.theme import T, _theme
 from gui.icons import menu_qss, rank_list_qss, statusbar_qss
 from gui.widgets.panels import InfoPanel

@@ -11,7 +11,6 @@ contextMenu 内で lazy import している。
 - _NewGameCard: 新規作成用、SGFを開くペースを継承
 """
 from __future__ import annotations
-from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtWidgets import (
@@ -24,7 +23,7 @@ from PyQt6.QtGui import (
 )
 
 from gui.theme import T
-from gui.fonts import F, Font_XS, Font_SM, Font_LG
+from gui.fonts import Font_XS, Font_SM, Font_LG
 from gui.icons import make_icon
 
 

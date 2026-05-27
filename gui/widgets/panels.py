@@ -26,8 +26,15 @@ from PyQt6.QtCore import (
     QVariantAnimation, QEasingCurve,
 )
 from PyQt6.QtGui import (
-    QPainter, QPainterPath, QPainterPathStroker,
-    QPen, QBrush, QColor, QPixmap, QFont, QFontMetrics, QPalette,
+    QPainter,
+    QPainterPath,
+    QPainterPathStroker,
+    QPen,
+    QBrush,
+    QColor,
+    QPixmap,
+    QFont,
+    QFontMetrics,
 )
 
 from gui.theme import (
@@ -35,10 +42,7 @@ from gui.theme import (
     SP_XS, SP_SM, SP_MD, SP_LG, SP_XL,
     PAD_CARD,
 )
-from gui.fonts import (
-    F, Font_XS, Font_SM, Font_MD, Font_XXL,
-    FontMono_SM, FontMono_LG,
-)
+from gui.fonts import Font_XS, Font_SM, Font_MD, Font_XXL, FontMono_SM, FontMono_LG
 from gui.infra import _profile, _profile_method, eval_badge_tuple
 from gui.widgets.graph import WinRateGraph
 from gui.widgets.branchtree import _TreeEdgeFadeOverlay
@@ -1253,7 +1257,6 @@ class _CrossFadeLabel(QLabel):
         # setOpacity を効かせられず、フェードインを表現できない。よって
         # 自前で描画して両方の不透明度を制御する。
         from PyQt6.QtGui import QPainter, QColor
-        from PyQt6.QtCore import Qt as _Qt
         # テキスト色を取得(stylesheet で指定された色を優先、なければ palette)
         col = self.palette().color(self.foregroundRole())
         try:

@@ -259,7 +259,7 @@ class FlatSlider(QSlider):
             self._prev_max = new_max
 
     def paintEvent(self, _event):
-        from PyQt6.QtGui import QPainter, QColor, QPen
+        from PyQt6.QtGui import QPainter, QColor
         from PyQt6.QtCore import QRectF
         t = T()
         p = QPainter(self)

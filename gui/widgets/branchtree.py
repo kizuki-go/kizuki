@@ -14,7 +14,7 @@ import time
 from typing import Optional
 
 from PyQt6.QtWidgets import QWidget, QScrollArea, QMenu
-from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QSize, QEvent
+from PyQt6.QtCore import Qt, pyqtSignal, QPointF
 from PyQt6.QtGui import (
     QPainter, QPainterPath, QPen, QBrush, QColor, QPixmap,
     QLinearGradient, QFontMetrics,
@@ -22,7 +22,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtCore import QVariantAnimation, QEasingCurve
 
 from gui.theme import T, EVAL_COLORS
-from gui.fonts import F, FontMono_XS
+from gui.fonts import FontMono_XS
 from gui.infra import _profile, _profile_method
 from core.sgf_parser import SGFNode
 from core.game_state import GameState

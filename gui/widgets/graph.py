@@ -25,8 +25,8 @@ except ImportError:
     pg = None
 
 from gui.theme import T, SP_XS, SP_XL
-from gui.fonts import F, Font_XS, FontMono_XS, FontMono_SM
-from gui.infra import _profile, _profile_method
+from gui.fonts import Font_XS, FontMono_XS, FontMono_SM
+from gui.infra import _profile_method
 
 
 class ScoreLeadAxis(pg.AxisItem if pg else object):

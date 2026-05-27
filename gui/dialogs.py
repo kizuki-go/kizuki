@@ -11,22 +11,28 @@ gui/dialogs.py — モーダル/モードレスダイアログ群。
 - _FirstLaunchRankDialog: 初回起動時の棋力選択モーダル (ESC無効)
 """
 from __future__ import annotations
-from typing import Optional
 
 from PyQt6.QtWidgets import (
-    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout,
-    QPushButton, QLabel, QLineEdit, QComboBox, QListView,
-    QFrame, QGroupBox, QScrollArea, QScrollBar, QSizePolicy,
-    QColorDialog, QApplication, QGraphicsDropShadowEffect,
+    QDialog,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QPushButton,
+    QLabel,
+    QLineEdit,
+    QComboBox,
+    QListView,
+    QFrame,
+    QGroupBox,
+    QScrollArea,
+    QScrollBar,
+    QColorDialog,
+    QApplication,
+    QGraphicsDropShadowEffect,
 )
-from PyQt6.QtCore import (
-    Qt, QPointF, QRectF, QPropertyAnimation, QEasingCurve, QSettings,
-)
-from PyQt6.QtGui import (
-    QPainter, QPainterPath, QPen, QBrush, QColor, QPixmap,
-    QFontMetrics, QRegion,
-)
-from PyQt6.QtSvg import QSvgRenderer
+from PyQt6.QtCore import Qt, QRectF, QPropertyAnimation, QEasingCurve, QSettings
+from PyQt6.QtGui import QPainter, QPainterPath, QPen, QBrush, QColor, QRegion
 
 from gui.theme import T, EVAL_COLORS, LIGHT_BLUNDER_COLORS
 from gui.fonts import Font_XS, Font_SM, Font_LG, Font_XL
@@ -67,9 +73,17 @@ class ColorAdjustmentDialog(QDialog):
 
         # UI 構築
         from PyQt6.QtWidgets import (
-            QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
-            QGroupBox, QFormLayout, QFrame, QScrollArea, QWidget,
-            QColorDialog, QGridLayout, QSizePolicy
+            QVBoxLayout,
+            QHBoxLayout,
+            QPushButton,
+            QLabel,
+            QLineEdit,
+            QGroupBox,
+            QFrame,
+            QScrollArea,
+            QWidget,
+            QColorDialog,
+            QGridLayout,
         )
         main_lay = QVBoxLayout(self)
         main_lay.setContentsMargins(12, 12, 12, 12)
@@ -395,7 +409,7 @@ class _WarningIconWidget(QWidget):
 
     def paintEvent(self, ev):
         from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath
-        from PyQt6.QtCore import QPointF, QRectF
+        from PyQt6.QtCore import QRectF
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         s = self.width()

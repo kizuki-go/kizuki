@@ -10,7 +10,6 @@ gui/widgets/navbar.py — 碁盤下のナビゲーションバーと関連トグ
 - NavBar: 戻る/進む/スライダ/AI/Ownership/手数表示 などのナビバー
 """
 from __future__ import annotations
-from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QLabel, QPushButton, QSlider,
@@ -19,12 +18,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import (
     Qt, pyqtSignal, QPointF, QSize, QSettings, QTimer,
 )
-from PyQt6.QtGui import (
-    QPainter, QPainterPath, QPen, QBrush, QColor, QIcon, QPixmap, QPalette,
-)
+from PyQt6.QtGui import QPainter, QBrush, QColor, QIcon, QPixmap
 
 from gui.theme import T, SP_XS, SP_SM, SP_LG, PAD_CARD
-from gui.fonts import F, Font_XS, Font_MD
+from gui.fonts import Font_XS, Font_MD
 from gui.icons import make_icon, icon_button_qss, install_icon_hover_color_swap
 from gui.widgets.common import FlatSlider, SLIDER_HANDLE
 
@@ -414,7 +411,7 @@ class NavBar(QWidget):
             # ・本体を fill=color_hex で全塗りし、内部のドット 3 つは
             #   CompositionMode_DestinationOut で「穴」を開けて透過。
             # ・ドットは中心 y=9.5、x=6.5/10/13.5、r=0.9。
-            from PyQt6.QtGui import QPen, QBrush
+            from PyQt6.QtGui import QBrush
             from PyQt6.QtCore import QPointF, Qt as _Qt
 
             # ステージ 1: 吹き出し本体(全塗り)を SVG で描画
