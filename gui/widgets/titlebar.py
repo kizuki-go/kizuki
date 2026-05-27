@@ -72,7 +72,12 @@ class _CustomTitleBar(QWidget):
         # None / [] で先に置き、hasattr() ガードを使わずに済むようにする。
         # ======================================================================
         self._menu_buttons: list[QPushButton] = []
-        self._menus: list = []
+        # _menus と _active_menu_index は set_menu 初回呼出で
+        # [None] * len(_menu_buttons) に伸長される (lazy init を維持するため
+        # None で置く)。空リスト [] で初期化すると set_menu の index 代入が
+        # IndexError になる。
+        self._menus = None
+        self._active_menu_index: int = -1
         self._btn_toggle_panel = None
         self._btn_volume = None
         self._last_any_menu_close_ms = 0
