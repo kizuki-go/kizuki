@@ -65,10 +65,22 @@ class _CustomTitleBar(QWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        # ======================================================================
+        # Phase 7: 子ウィジェット/状態属性の事前初期化。
+        # _make_window_btn / メニューインストールで後から代入されるものは
+        # None / [] で先に置き、hasattr() ガードを使わずに済むようにする。
+        # ======================================================================
+        self._menu_buttons: list[QPushButton] = []
+        self._menus: list = []
+        self._btn_toggle_panel = None
+        self._btn_volume = None
+        self._last_any_menu_close_ms = 0
+
         self.setObjectName("custom_titlebar")
         self.setFixedHeight(self.HEIGHT)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -82,7 +94,7 @@ class _CustomTitleBar(QWidget):
         layout.addWidget(self._app_icon_lbl)
         
         # ── メニューボタン群(プレースホルダ) ─────────────────
-        self._menu_buttons: list[QPushButton] = []
+        # _menu_buttons は冒頭の Phase 7 init block で空 list 初期化済み
         for label in self.MENU_LABELS:
             btn = QPushButton(label)
             btn.setFlat(True)
@@ -399,7 +411,7 @@ class _CustomTitleBar(QWidget):
         メニュー popup 中にタイトルバー空きをクリックした際、ポップアップが
         閉じた直後にクリックが伝播してきてドラッグ移動が起動するのを防ぐ。
         """
-        if not hasattr(self, "_last_any_menu_close_ms"):
+        if self._last_any_menu_close_ms is None:
             return False
         from PyQt6.QtCore import QDateTime
         return (QDateTime.currentMSecsSinceEpoch()
@@ -453,7 +465,7 @@ class _CustomTitleBar(QWidget):
         if not (0 <= index < len(self._menu_buttons)):
             return
         # メニューと index を保持(ホバー切替用)
-        if not hasattr(self, "_menus"):
+        if self._menus is None:
             self._menus: list = [None] * len(self._menu_buttons)
             # 「現在開いているメニュー index」を追跡する状態
             self._active_menu_index: int = -1
@@ -536,7 +548,7 @@ class _CustomTitleBar(QWidget):
         QMenu 表示中は Qt の :hover が効かないため、明示的なフラグで
         ホバー相当の見た目を維持する。
         """
-        if not hasattr(self, "_menu_buttons"):
+        if self._menu_buttons is None:
             return
         for i, btn in enumerate(self._menu_buttons):
             new_state = (i == idx)
@@ -551,7 +563,7 @@ class _CustomTitleBar(QWidget):
         メニュー間ホバー切替で使用される。
         """
         from PyQt6.QtCore import QPoint
-        if not hasattr(self, "_menus"):
+        if self._menus is None:
             return
         if not (0 <= new_index < len(self._menus)):
             return
@@ -686,12 +698,12 @@ class _CustomTitleBar(QWidget):
         self._btn_close.setIcon(self._make_window_btn_icon("close", t.TEXT.name()))
         # 右パネルトグルボタンも現在の状態を保ったまま色を更新
         # (MainWindow側の _right_panel_collapsed を参照、無ければopen扱い)
-        if hasattr(self, "_btn_toggle_panel"):
+        if self._btn_toggle_panel is not None:
             is_collapsed = bool(getattr(win, "_right_panel_collapsed", False)) if win else False
             self.update_panel_toggle_icon(is_open=not is_collapsed)
         # 音量ボタンも現在の状態を保ったまま色を更新
         # (MainWindow側の _sound.muted / volume を参照、無ければON扱い)
-        if hasattr(self, "_btn_volume"):
+        if self._btn_volume is not None:
             is_muted = False
             if win is not None and hasattr(win, "_sound"):
                 snd = win._sound
