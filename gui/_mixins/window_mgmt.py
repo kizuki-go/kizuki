@@ -9,21 +9,16 @@ changeEvent / showEvent といった Qt イベントハンドラも含む。Mixi
 QMainWindow より前に並ぶため、Qt はこれらを通常通り検出する。
 """
 from __future__ import annotations
-import ctypes
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from gui._mixins._types import MainWindowProto
 
 from PyQt6.QtCore import (
-    Qt, QEvent, QPoint, QRect, QSettings, QTimer,
-    QEasingCurve, QPropertyAnimation, QParallelAnimationGroup,
-    QVariantAnimation,
+    Qt, QPoint,
 )
-from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QScrollArea, QMainWindow,
-    QGraphicsEffect, QGraphicsOpacityEffect,
+    QApplication, QMainWindow,
 )
 
 from gui.theme import T, SP_XS, R_MD
@@ -229,6 +224,17 @@ class WindowMgmtMixin:
                 btn.move(ov_w - btn.width() - SP_XS, SP_XS)
                 btn.raise_()
 
+        # ── トースト通知（碁盤エリア中央にフローティング表示） ───────────
+        # ToastWidget はメッセージ長に応じた可変サイズなので、setGeometry で
+        # 矩形を固定するのではなく、碁盤エリアの矩形(board_w×board_h、
+        # 原点(0, top_offset))の中央に reposition する。表示中(visible)の
+        # ときだけ追従させれば十分(非表示中はどこにあっても見えないため)。
+        if self._toast is not None and self._toast.isVisible():
+            from PyQt6.QtCore import QRect
+            board_rect = QRect(0, top_offset, board_w, board_h)
+            self._toast.reposition_centered_in(board_rect)
+            self._toast.raise_()
+
         # ── D&D オーバーレイの追従 ─────────────────────────────
         # _root_widget の子なのでサイズ更新だけ行えばよい(タイトルバーは
         # 自動で除外される)。表示中のときのみカード位置も再計算する。
@@ -239,6 +245,31 @@ class WindowMgmtMixin:
                 ch = self._drop_card.height()
                 self._drop_card.move((rw - cw) // 2, (rh - ch) // 2)
                 self._drop_overlay.raise_()
+
+    def show_toast(self: "MainWindowProto", text: str):
+        """画面中央(碁盤エリア中央)に一時的なトースト通知を表示する。
+        ToastWidget.show_message() に委譲し、表示直後に _place_panels() を
+        呼んで碁盤中央への配置を確定させる(初回表示時はジオメトリが
+        まだ無いため、サイズ確定後の配置が必要)。
+
+        メニューアクションのトリガー直後など、メニューが閉じる処理や
+        他の保留中のレイアウト更新と Z-order が競合し、トーストが他の
+        ウィジェットの背後に隠れてしまうことがあった。これを避けるため、
+        即座の raise_() に加えて、次のイベントループサイクル(0ms 後)で
+        もう一度 raise_() を予約し、保留中の処理がすべて完了した後の
+        最終的な Z-order でも確実に最前面に来るようにする。"""
+        if self._toast is None:
+            return
+        self._toast.show_message(text)
+        self._place_panels()
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._raise_toast_if_visible)
+
+    def _raise_toast_if_visible(self: "MainWindowProto"):
+        """show_toast から次のイベントループサイクルで呼ばれる、
+        トーストの最前面化を保証するための補助メソッド。"""
+        if self._toast is not None and self._toast.isVisible():
+            self._toast.raise_()
 
     def showEvent(self: "MainWindowProto", ev):
         """初回表示時にフローティングパネルを配置する。"""
@@ -656,7 +687,7 @@ class WindowMgmtMixin:
 
         # 最終形のレイアウトを計算するため、target_visible を仮設定して
         # _place_panels の panel_visible 判定を上書き → 最終形の board_w を取得
-        prev_target_visible = getattr(self, "_panel_anim_target_visible", None)
+        getattr(self, "_panel_anim_target_visible", None)
         self._panel_anim_target_visible = (not new_collapsed)
         # 一度通常の _place_panels を呼んで「最終形のジオメトリ」を取得する
         # → 直後にアニメ開始時点に戻すため、現状のジオメトリを保存しておく

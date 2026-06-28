@@ -15,13 +15,10 @@ try:
         QVBoxLayout,
         QPushButton,
         QLabel,
-        QFileDialog,
-        QTextEdit,
-        QStatusBar,
         QSizePolicy,
         QScrollArea,
     )
-    from PyQt6.QtCore import Qt, pyqtSignal, QRect, QEvent, QObject
+    from PyQt6.QtCore import Qt, pyqtSignal
     from PyQt6.QtGui import QAction, QKeySequence
 except ImportError:
     print("pip install PyQt6 pyqtgraph"); sys.exit(1)
@@ -32,14 +29,14 @@ except ImportError:
     pg = None
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from core.sgf_parser import SGFGame, SGFNode
-from core.katago_engine import KataGoEngine, AnalysisResult
+from core.sgf_parser import SGFGame
+from core.katago_engine import KataGoEngine
 from core.game_state import GameState
 from core.analyzer import MoveAnalysis
 
-from gui.theme import T, _theme, SP_XS, SP_SM, SP_MD, SP_LG, PAD_CARD, SPACING_ROW
-from gui.icons import menu_qss, rank_list_qss, statusbar_qss, icon_button_qss
-from gui.infra import set_player_rank, SoundPlayer, TranslucentWidget
+from gui.theme import T, _theme, SP_XS, SP_SM, SP_MD, SP_LG, SPACING_ROW
+from gui.icons import menu_qss, rank_list_qss
+from gui.infra import set_player_rank, SoundPlayer, TranslucentWidget, ToastWidget, get_base_dir
 from gui.widgets.common import (
     _RankItemDelegate,
     SLIDER_HEIGHT,
@@ -49,11 +46,11 @@ from gui.widgets.common import (
 )
 from gui.widgets.board import BoardWidget, BoardContainer
 from gui.widgets.titlebar import _CustomTitleBar
-from gui.widgets.navbar import ToggleSwitch, ToggleBar, NavBar
+from gui.widgets.navbar import ToggleBar, NavBar
 from gui.widgets.welcome import WelcomePane, _WelcomeCard
-from gui.widgets.panels import InfoPanel, MetricLabel, MoveInfoCard
+from gui.widgets.panels import InfoPanel, MoveInfoCard
 from gui.widgets.branchtree import BranchTreeWidget
-from gui.menus import style_qmenu, _install_submenu_positioner, _KomiCustomWidget
+from gui.menus import style_qmenu, _KomiCustomWidget
 
 from gui._mixins.theme_ctrl import ThemeCtrlMixin
 from gui._mixins.comments import CommentsMixin
@@ -106,7 +103,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
     # アプリ起動時に直下の .bin.gz をスキャンし、ちょうど1個ある場合のみ
     # 起動を許可する。0個または複数個ある場合は起動前にエラーで終了する
     # （main() 側で _check_models_or_exit() がチェックする）。
-    KATAGO_DIR = str(Path(__file__).parent.parent / "katago")
+    KATAGO_DIR = str(get_base_dir() / "katago")
 
     # ── 解析ルール / コミ設定 ────────────────────────────────────────
     # SGF の KM/RU は無視し、ソフト側で管理した値だけを KataGo に渡す。
@@ -182,6 +179,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         self._comment = None
         self._comment_overlay = None
         self._comment_fade_overlay = None
+        self._toast = None
         self._comment_close_btn = None
         self._volume_label = None
         self._volume_slider = None
@@ -191,6 +189,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         self._copy_act = None
         self._save_act = None
         self._ss_act = None
+        self._ss_win_act = None
         self._action_light = None
         self._panel_opacity_effect = None
         self._wheel_refresh_timer = None
@@ -256,7 +255,6 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         self.setStyleSheet(
             f"QMainWindow{{background:{T().BG.name()};}}"
             + menu_qss()
-            + statusbar_qss()
         )
 
         self._game: Optional[SGFGame] = None
@@ -315,6 +313,11 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         # キャッシュ内容: ((cur_node, root) のキー, move_nodes_in_path,
         # main_move_nodes, on_main_line, graph_total) のタプル。
         self._graph_struct_cache: Optional[tuple] = None
+        # ライン切り替え判定用: 前回の _update_graph 呼び出し時点での
+        # 現在ノード。メインライン⇔分岐などの切り替えを検出するために使う
+        # (_is_lineage で前回ノードとの系譜関係を判定し、切り替え時のみ
+        # グラフをフェードアウト→データ差替→フェードインで切り替える)。
+        self._graph_last_cur_node = None
         # 解析・形勢の ON/OFF を QSettings から復元（ToggleBar と同じキー）。
         # デフォルトは 解析=ON / 形勢=OFF（初回起動時の従来挙動）。
         from PyQt6.QtCore import QSettings as _QS
@@ -686,6 +689,12 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         # 情報パネル（root の子として絶対配置、_place_panels で位置確定）
         self._right_col = right
 
+        # ── トースト通知（盤面中央にフローティング表示） ──
+        # 汎用コンポーネント。show_toast(text) から呼ぶ。配置(中央寄せ)は
+        # _place_panels で碁盤エリアの座標が確定するたびに更新する。
+        self._toast = ToastWidget(root)
+        self._toast.setObjectName("toast_widget")
+
         # ── コメントオーバーレイ（ナビバー上にフローティング表示） ──
         self._comment_overlay = TranslucentWidget(root, alpha=230)
         self._comment_overlay.setObjectName("comment_overlay")
@@ -748,11 +757,6 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
 
         # _comment は後方互換のため _comment_textedit へのエイリアス
         self._comment = self._comment_textedit
-
-        # ステータスバー（非表示）
-        self._status_bar = QStatusBar()
-        self.setStatusBar(self._status_bar)
-        self._status_bar.setVisible(False)
 
         # ── 全画面 D&D オーバーレイ ─────────────────────────────
         # SGF 棋譜のドラッグ&ドロップは MainWindow 全体で受け付ける。
@@ -817,24 +821,20 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         self._ss_act = QAction("盤面をスクリーンショット", self)
         self._ss_act.setShortcut(QKeySequence("Ctrl+P"))
         self._ss_act.triggered.connect(self._save_board_screenshot); fm.addAction(self._ss_act)
+        self._ss_win_act = QAction("画面全体をスクリーンショット", self)
+        self._ss_win_act.setShortcut(QKeySequence("Ctrl+Shift+P"))
+        self._ss_win_act.triggered.connect(self._save_window_screenshot); fm.addAction(self._ss_win_act)
+        fm.addSeparator()
+        close_act = QAction("閉じる", self)
+        close_act.triggered.connect(self._animated_close); fm.addAction(close_act)
 
         vm = mb.addMenu("表示")
         style_qmenu(vm, leaf=True)
 
-        # 前回値を復元（デフォルト: 候補手=True、座標=False）
-        show_hints_init  = settings.value("show_hints",  True,  type=bool)
+        # 前回値を復元（デフォルト: 座標=False）
+        # 候補手の表示トグルは NavBar の「解析」トグルに統合済み(ai_enabled に
+        # 連動)。メニューの独立トグルは廃止した。
         show_coords_init = settings.value("show_coords", False, type=bool)
-
-        ha = QAction("候補手", self)
-        ha.setCheckable(True)
-        ha.setChecked(show_hints_init)
-        self._board.show_hints = show_hints_init
-        def _toggle_hints(v):
-            self._board.show_hints = v
-            QSettings("Kizuki", "Kizuki").setValue("show_hints", v)
-            self._board.update()
-        ha.triggered.connect(_toggle_hints)
-        vm.addAction(ha)
 
         show_badges_init = settings.value("show_badges", True, type=bool)
         ba = QAction("評価バッジ", self)
@@ -848,11 +848,11 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         ba.triggered.connect(_toggle_badges)
         vm.addAction(ba)
 
-        # 最後の手をマーク: 直前の手の石中心に枠線リングを描画
+        # 最終手をマーク: 直前の手の石中心に枠線リングを描画
         # (黒石上は白線、白石上は黒線)。デフォルト OFF。
         show_last_mark_init = settings.value(
             "show_last_move_mark", False, type=bool)
-        lma = QAction("最後の手をマーク", self)
+        lma = QAction("最終手をマーク", self)
         lma.setCheckable(True)
         lma.setChecked(show_last_mark_init)
         self._board.show_last_move_mark = show_last_mark_init
@@ -1118,21 +1118,6 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
         self._action_light   = light_action
         self._action_dark    = dark_action
 
-        # ── カラー調整(開発用) ────────────────────────────────────────
-        setting_menu.addSeparator()
-        color_adj_act = QAction("カラー調整(開発用)...", self)
-        color_adj_act.triggered.connect(self._open_color_adjustment)
-        setting_menu.addAction(color_adj_act)
-
-        # ── 初回起動状態にして終了(開発用) ───────────────────────────
-        # QSettings("Kizuki", "Kizuki") の全キーを削除してアプリを終了する。
-        # 次回起動時には全 value(key, default) がデフォルト値を返すため、
-        # 結果として「初回起動時」と同じ状態でアプリが立ち上がる。
-        # 開発者向けの動作確認用機能のため、確認ダイアログは出さず即実行する。
-        first_launch_act = QAction("初回起動状態にして終了(開発用)", self)
-        first_launch_act.triggered.connect(self._reset_to_first_launch_and_quit)
-        setting_menu.addAction(first_launch_act)
-
         # ── 音量 メニュー（トップレベル） ──────────────────────────
         # サブメニュー内に「NN%」ラベル + スライダー(0〜100%) を埋め込む。
         # ラベルはスライダーのつまみ位置に追従して横移動する。
@@ -1267,23 +1252,6 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
 
     # ── KataGo エンジン管理 ────────────────────────────────────
 
-    def _reset_to_first_launch_and_quit(self):
-        """開発用: 全ての永続設定を削除してアプリを終了する。
-        次回起動時、QSettings は空になっているため、value(key, default) は
-        全てデフォルト値を返し、結果として「初回起動時」と同じ状態で
-        アプリが立ち上がる。
-
-        QSettings.clear() は ("Kizuki", "Kizuki") スコープに含まれる
-        キーのみを削除するため、他アプリの設定には影響しない。
-        sync() で確実にディスクへ書き込んでから quit() する。
-        """
-        from PyQt6.QtCore import QSettings
-        from PyQt6.QtWidgets import QApplication
-        qs = QSettings("Kizuki", "Kizuki")
-        qs.clear()
-        qs.sync()
-        QApplication.quit()
-
     # ── 対局情報の正規化とエンジンへの伝達 ──────────────────────────
 
     # 分岐ツリーのスクロール追従アニメ用: scroll_area ごとに進行中アニメを保持
@@ -1302,9 +1270,6 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
     def _app_event_filter_active(self):
         return (self._comment_overlay is not None
                 and self._comment_overlay.isVisible())
-
-    def mousePressEvent(self, ev):
-        super().mousePressEvent(ev)
 
     # ── ポンダリング ─────────────────────────────────────────────
 
@@ -1655,7 +1620,7 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
 
     def keyPressEvent(self, ev):
         k = ev.key()
-        ctrl = bool(ev.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        bool(ev.modifiers() & Qt.KeyboardModifier.ControlModifier)
 
         nav_keys = (
             Qt.Key.Key_Down, Qt.Key.Key_Right,
@@ -1663,8 +1628,12 @@ class MainWindow(NavigationMixin, EngineCtrlMixin, WindowMgmtMixin, FileIOMixin,
             Qt.Key.Key_Home, Qt.Key.Key_End,
         )
         if k in nav_keys:
-            if k in (Qt.Key.Key_Down, Qt.Key.Key_Right): self._next()
-            elif k in (Qt.Key.Key_Up, Qt.Key.Key_Left):  self._prev()
+            # 左右: 1手戻る/進む(メインライン優先)。上下: 手数は変えずに
+            # 現在ノードの兄弟(分岐ツリー上の別の枝)へ乗り換える。
+            if k == Qt.Key.Key_Right: self._next()
+            elif k == Qt.Key.Key_Left:  self._prev()
+            elif k == Qt.Key.Key_Up:    self._prev_sibling()
+            elif k == Qt.Key.Key_Down:  self._next_sibling()
             elif k == Qt.Key.Key_Home: self._goto_first()
             elif k == Qt.Key.Key_End:  self._goto_last()
             ev.accept()

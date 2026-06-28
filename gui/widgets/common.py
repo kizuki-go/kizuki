@@ -398,7 +398,7 @@ class _ScrollFadeOverlay(QWidget):
         # 角丸クリップする。これでフェードがオーバーレイ枠からはみ出ない。
         r = float(R_MD)
         if self._show_top and H > 0:
-            top_rect = QRectF(0, 0, w, h)
+            QRectF(0, 0, w, h)
             top_path = QPainterPath()
             # 上2角だけ角丸、下辺は直線(フェード境界)
             top_path.moveTo(r, 0)

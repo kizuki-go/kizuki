@@ -11,20 +11,16 @@ contextMenu 内で lazy import している。
 """
 from __future__ import annotations
 import time
-from typing import Optional
 
-from PyQt6.QtWidgets import QWidget, QScrollArea, QMenu
+from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF
 from PyQt6.QtGui import (
-    QPainter, QPainterPath, QPen, QBrush, QColor, QPixmap,
-    QLinearGradient, QFontMetrics,
+    QPainter, QPainterPath, QPen, QBrush, QColor, QLinearGradient,
 )
-from PyQt6.QtCore import QVariantAnimation, QEasingCurve
 
 from gui.theme import T, EVAL_COLORS
 from gui.fonts import FontMono_XS
 from gui.infra import _profile, _profile_method
-from core.sgf_parser import SGFNode
 from core.game_state import GameState
 
 
@@ -467,6 +463,67 @@ class BranchTreeWidget(QWidget):
             if is_cur:
                 return (x, y)
         return None
+
+    def node_in_row_direction(self, direction: int):
+        """現在ノードから見て、画面上1つ上/下の「行」にある、最も近いノードを返す。
+
+        矢印キーの上下操作用。分岐ツリーは「手数=横軸(depth・x)、
+        分岐ごとの行=縦軸(row・y)」のレイアウトなので、上下キーは
+        見た目通り「画面上で縦に1行動く」直感的操作にする。
+
+        アルゴリズム:
+          1. 全ノードを行(y座標)でグループ化する。
+          2. 現在地の行を除き、direction 方向(上なら y が小さい側、
+             下なら y が大きい側)で最も近い行を1つ選ぶ
+             (=画面上すぐ上/すぐ下に見えている行)。
+          3. その行の中から、現在ノードの depth(手数の列)に最も近い
+             ノードを選ぶ。別の行が現在地より短く、同じ depth に
+             ノードが無い場合は、その行の中で depth が最も近い
+             ノード(=その行の最後の手など)に着地する。
+          4. 該当する行が無ければ None(何もしない)。
+
+        direction: -1 で上、+1 で下。
+        """
+        if not self._nodes:
+            return None
+        cur = None
+        for x, y, node, is_cur, depth in self._nodes:
+            if is_cur:
+                cur = (x, y, node, depth)
+                break
+        if cur is None:
+            return None
+        _cx, cy, _cnode, cdepth = cur
+
+        # ── 1. 行(y座標)でグループ化 ──
+        rows: dict[int, list[tuple[int, object]]] = {}
+        for _x, y, node, _is_cur, depth in self._nodes:
+            rows.setdefault(y, []).append((depth, node))
+
+        # ── 2. 現在地の行を除き、direction 方向で最も近い行を選ぶ ──
+        other_ys = [y for y in rows.keys() if y != cy]
+        if direction < 0:
+            candidates = [y for y in other_ys if y < cy]
+            if not candidates:
+                return None
+            target_y = max(candidates)  # cy に最も近い(すぐ上の)行
+        else:
+            candidates = [y for y in other_ys if y > cy]
+            if not candidates:
+                return None
+            target_y = min(candidates)  # cy に最も近い(すぐ下の)行
+
+        # ── 3. その行の中で depth が現在地に最も近いノードを選ぶ ──
+        row_nodes = rows[target_y]
+        # depth が完全一致するノードがあればそれを優先、無ければ
+        # 最も depth が近いノード(最小の |depth - cdepth|)に着地する。
+        # 同点の場合は depth が大きい方(cdepth に届かない場合の「その行の
+        # 最後の手」)を優先する。
+        best = min(
+            row_nodes,
+            key=lambda t: (abs(t[0] - cdepth), -t[0]),
+        )
+        return best[1]
 
     @_profile_method("BranchTree.layout")
     def _layout_tree(self, root, current):

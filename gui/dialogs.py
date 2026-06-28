@@ -15,27 +15,13 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QDialog,
     QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QGridLayout,
-    QPushButton,
-    QLabel,
-    QLineEdit,
-    QComboBox,
-    QListView,
     QFrame,
-    QGroupBox,
-    QScrollArea,
-    QScrollBar,
-    QColorDialog,
-    QApplication,
-    QGraphicsDropShadowEffect,
 )
-from PyQt6.QtCore import Qt, QRectF, QPropertyAnimation, QEasingCurve, QSettings
-from PyQt6.QtGui import QPainter, QPainterPath, QPen, QBrush, QColor, QRegion
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 
 from gui.theme import T, EVAL_COLORS, LIGHT_BLUNDER_COLORS
-from gui.fonts import Font_XS, Font_SM, Font_LG, Font_XL
+from gui.fonts import Font_XS, Font_SM, Font_LG
 from gui.icons import icon_button_qss, _get_chevron_down_path
 
 
@@ -77,12 +63,10 @@ class ColorAdjustmentDialog(QDialog):
             QHBoxLayout,
             QPushButton,
             QLabel,
-            QLineEdit,
             QGroupBox,
             QFrame,
             QScrollArea,
             QWidget,
-            QColorDialog,
             QGridLayout,
         )
         main_lay = QVBoxLayout(self)
@@ -875,6 +859,7 @@ class _FirstLaunchRankDialog(QDialog):
         from PyQt6.QtSvg import QSvgRenderer as _QSvgRenderer
         from PyQt6.QtCore import QRectF as _QRectF_dlg
         from pathlib import Path as _Path
+        from gui.infra import get_base_dir as _get_base_dir
         dpr = self.devicePixelRatioF() if hasattr(self, "devicePixelRatioF") else 1.0
         pm_size = max(1, int(round(ICON_PX * dpr)))
         pm = _QPixmap(pm_size, pm_size)
@@ -883,7 +868,7 @@ class _FirstLaunchRankDialog(QDialog):
         ipt = _QPainter(pm)
         ipt.setRenderHint(_QPainter.RenderHint.Antialiasing)
         theme_mode = "dark" if t.BG.lightness() < 128 else "light"
-        svg_path = _Path(__file__).parent / "assets" / f"logo_mark_{theme_mode}.svg"
+        svg_path = _get_base_dir() / "gui" / "assets" / f"logo_mark_{theme_mode}.svg"
         if svg_path.exists():
             renderer = _QSvgRenderer(str(svg_path))
             if renderer.isValid():

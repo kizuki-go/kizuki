@@ -14,15 +14,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from gui._mixins._types import MainWindowProto
 
-from PyQt6.QtCore import QTimer
 
 from core.sgf_parser import sgf_coord_to_pos, sgf_coord_to_human
 from core.game_state import GameState
-from core.katago_engine import KataGoEngine
 
 from gui.infra import _profile, _profile_method
-from gui.widgets.board import BoardWidget
-from gui.widgets.panels import MoveInfoCard
 
 
 class NavigationMixin:
@@ -120,6 +116,38 @@ class NavigationMixin:
             elif self._game_state.current_node.move_color:
                 self._sound.play_place()
             self._refresh_board()
+
+    def _row_move(self: "MainWindowProto", direction: int):
+        """分岐ツリー上で、現在ノードと同じ手数の列のまま、画面上1行上/下の
+        ノードへ移動する(上下キー操作用)。
+
+        分岐ツリーは「手数=横軸、分岐ごとの行=縦軸」のレイアウトなので、
+        見た目通り「今いる手数のまま縦に1行動く」という直感的な操作にする。
+        対象ノードの探索は BranchTreeWidget.node_in_row_direction に委譲する
+        (描画レイアウト(_nodes)を持っているのはツリー側のため)。
+
+        direction: -1 で上キー、+1 で下キー。
+        同じ列に該当する行がない(画面上の上端/下端)場合は何もしない。
+        """
+        if not self._game_state or self._branch_tree is None:
+            return
+        target = self._branch_tree.node_in_row_direction(direction)
+        if target is None:
+            return
+        node = self._game_state.current_node
+        if target is node:
+            return
+        self._save_comment_if_editing(node)
+        self._game_state.go_to_node(target)
+        self._refresh_board()
+
+    def _prev_sibling(self: "MainWindowProto"):
+        """上キー: 分岐ツリー上で1行上のノードへ移動する。"""
+        self._row_move(-1)
+
+    def _next_sibling(self: "MainWindowProto"):
+        """下キー: 分岐ツリー上で1行下のノードへ移動する。"""
+        self._row_move(1)
 
     def _on_slider_value_changed(self: "MainWindowProto", v):
         """クリックによる値変化時のみ処理（ドラッグ中は sliderMoved が担当）。"""
@@ -244,18 +272,28 @@ class NavigationMixin:
             self._save_comment_if_editing(self._game_state.current_node)
         with _profile("node_clicked.goto_node"):
             self._game_state.go_to_node(node)
-        # _refresh_board と _update_graph はそれぞれ自身に @_profile_method 付き
+        # _refresh_board 内で _update_graph も実行される（盤面・カード・グラフを
+        # 一括更新）。かつてはここで _update_graph() を明示的に二重で呼んでいたが、
+        # それにより「ライン切り替え検出 → フェード開始」(1回目の _update_graph)
+        # の直後に「同一ノードなので即時反映」(2回目)が走ってしまい、
+        # フェードが開始した瞬間に上書きされて見えなくなる不具合があった。
+        # _refresh_board に一本化することでこれを解消する。
         self._refresh_board()
-        #  分岐ノードが対象に含まれるよう _update_graph も明示的に呼ぶ)
-        self._update_graph()
+
+
 
     def _on_delete_branch_node(self: "MainWindowProto", node):
-        """分岐ツリーの右クリックメニューから指定ノードを削除する。"""
+        """分岐ツリーの右クリックメニューから指定ノードを削除する。
+        ルート、およびメインライン上のノード（root から children[0] のみを
+        辿った経路）は削除不可。削除できるのは分岐ノードのみ。"""
         if not self._game_state:
             return
         parent = node.parent
         if parent is None:
             return  # ルートは削除不可（念のため）
+        if self._is_main_line_node(node):
+            # メインライン上のノードは削除不可（分岐ノードのみ削除可）
+            return
 
         # 削除対象ノードが現在カーソル位置か、その子孫にいる場合は親へ移動
         cur = self._game_state.current_node
@@ -291,7 +329,6 @@ class NavigationMixin:
         self._info.get_graph().set_total_moves(total)
 
         self._refresh_board()
-        self._status_bar.showMessage("ノードを削除しました")
 
     def _on_move_number_anchor_requested(self: "MainWindowProto", node):
         """分岐ツリーの右クリックメニュー
@@ -363,10 +400,28 @@ class NavigationMixin:
 
         return moves
 
+    def _is_main_line_node(self: "MainWindowProto", node) -> bool:
+        """指定ノードがメインライン上にあるかを判定する。
+        メインラインの定義は core.sgf_parser.SGFTree.main_line() と同じ
+        （root から常に children[0] のみを辿った経路）。
+        root 自身も True を返す。
+        判定方法: ルートまで親を遡りながら「自分が親の children[0] か」を
+        毎段チェックする（1 箇所でも外れていればメインラインではない）。
+        """
+        n = node
+        while n.parent is not None:
+            if not n.parent.children or n.parent.children[0] is not n:
+                return False
+            n = n.parent
+        return True
+
     def _on_delete_node(self: "MainWindowProto"):
         """現在のノードを削除して1手戻る。
         現在ノードを親の children から除去し、親ノードへ移動する。
         ルートノード（親なし）では何もしない。
+        メインライン上のノード（root から children[0] のみを辿った経路）も
+        削除不可。Backspace で本譜が消えてしまう事故を防ぐため、削除できるのは
+        分岐ノード（メインラインから外れた手）のみとする。
         """
         if not self._game_state:
             return
@@ -374,6 +429,9 @@ class NavigationMixin:
         parent = node.parent
         if parent is None:
             # ルートは削除不可
+            return
+        if self._is_main_line_node(node):
+            # メインライン上のノードは削除不可（分岐ノードのみ削除可）
             return
 
         # 親の children から現在ノードを除去（子孫も同時に消える）
@@ -401,7 +459,6 @@ class NavigationMixin:
         self._info.get_graph().set_total_moves(total)
 
         self._refresh_board()
-        self._status_bar.showMessage("手を削除しました")
 
     def _on_board_click(self: "MainWindowProto", col: int, row: int):
         """碁盤クリック。解析モード: 石を打つ/右クリックで1手戻る。"""
@@ -415,7 +472,6 @@ class NavigationMixin:
         cap_before = (self._game_state._black_captures + self._game_state._white_captures)
         node = self._game_state.play(col, row)
         if node is None:
-            self._status_bar.showMessage("着手不可（既に石がある、または自殺手）")
             return
         cap_after = (self._game_state._black_captures + self._game_state._white_captures)
         if cap_after > cap_before:
@@ -441,6 +497,9 @@ class NavigationMixin:
         self._move_number_anchor = 0 if self._move_numbers_enabled else None
         if self._info is not None:
             self._info.get_graph().clear_data()  # グラフデータをリセット
+        # ライン切り替えアニメ判定用の前回ノード参照もリセット
+        # (棋譜切替直後に無意味なアニメが発生しないようにする)
+        self._graph_last_cur_node = None
         self._game_state = GameState(self._game)
         # 盤面サイズを反映（19路以外の棋譜にも対応）
         bs = self._game.board_size
@@ -626,10 +685,6 @@ class NavigationMixin:
             from PyQt6.QtCore import QTimer
             QTimer.singleShot(0, _do_scroll)
 
-        # ステータス: 手番表示
-        turn_str = "黒番" if gs.turn == "B" else "白番"
-        self._status_bar.showMessage(f"手 {idx}  {turn_str}  {'分岐あり (' + str(len(node.children)) + ')' if len(node.children) > 1 else ''}")
-
 
 
         # 局面が変わるたびにポンダリングを再開（ドラッグ中はスキップ）
@@ -667,12 +722,10 @@ class NavigationMixin:
         # 2) アゲハマ更新（軽量）
         self._info.update_captures(gs._white_captures, gs._black_captures)
 
-        # 3) 手数インデックス更新＋ステータスバー
+        # 3) 手数インデックス更新
         path = gs.path_to_root()
         idx = len(path) - 1
         self._current_idx = idx
-        turn_str = "黒番" if gs.turn == "B" else "白番"
-        self._status_bar.showMessage(f"手 {idx}  {turn_str}")
 
         # 4) MoveInfoCard の手番・手数・座標を軽量更新（評価は更新しない）
         mc = node.move_color or ""

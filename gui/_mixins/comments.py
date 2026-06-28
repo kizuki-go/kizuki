@@ -19,11 +19,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from gui._mixins._types import MainWindowProto
 
-from PyQt6.QtCore import (
-    QObject, QPropertyAnimation, QParallelAnimationGroup, QEasingCurve, QRect,
-)
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QTextEdit, QGraphicsOpacityEffect,
+    QWidget,
 )
 
 
@@ -64,12 +61,13 @@ class CommentsMixin:
         """ノードの右クリックメニューからコメント追加/編集が選ばれた。
         該当ノードに移動してからコメントオーバーレイを開く。
         ノード移動の手順は _on_branch_node_clicked と同じ流れ
-        (現在コメントの保存 → go_to_node → 盤面・グラフ更新)。"""
+        (現在コメントの保存 → go_to_node → 盤面・グラフ更新)。
+        _refresh_board 内で _update_graph も実行されるため、明示的な
+        二重呼び出しはしない(ライン切り替えアニメが上書き消失するのを防ぐ)。"""
         if self._game_state and node is not self._game_state.current_node:
             self._save_comment_if_editing(self._game_state.current_node)
             self._game_state.go_to_node(node)
             self._refresh_board()
-            self._update_graph()
         self._open_comment_overlay()
 
     def _toggle_comment_overlay(self: "MainWindowProto"):

@@ -14,13 +14,11 @@ MainWindow への参照は循環防止のため main() 内で lazy import する
 from __future__ import annotations
 import sys
 import logging
-from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtWidgets import QApplication, QWidget, QMessageBox
+from PyQt6.QtWidgets import QApplication, QWidget
 from PyQt6.QtCore import (
-    Qt, QEventLoop, QPropertyAnimation, QEasingCurve, QSettings, QThread, QTimer,
-    QVariantAnimation, QPointF, QRectF,
+    Qt, QThread, QPointF, QRectF, pyqtSignal,
 )
 from PyQt6.QtGui import QPainter, QBrush, QPen
 from PyQt6.QtSvg import QSvgRenderer
@@ -28,6 +26,7 @@ from PyQt6.QtSvg import QSvgRenderer
 from core.katago_engine import KataGoEngine
 from gui.theme import T, _theme
 from gui.fonts import Font_XS, Font_XL
+from gui.infra import get_base_dir
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +164,34 @@ class _SplashScreen(QWidget):
         self._mark_renderer = self._load_svg_renderer("logo_mark")
         self._text_renderer = self._load_svg_renderer("logo_text")
 
+        # ── ステータステキスト ────────────────────────────────────
+        # 通常は1行固定の「読み込み中...」(スピナーと横並び)。
+        # OpenCL チューニング検出時のみ set_tuning_progress() 経由で
+        # 3行構成(見出し・注釈・進捗。進捗行のみスピナーと横並び)に切り替える。
+        # _status_lines の最後の要素が常にスピナーと同じ行に表示される。
+        self._status_lines: list[str] = ["読み込み中..."]
+
+    def set_tuning_progress(self, phase_count: int, current: int, phase_total: int):
+        """OpenCL チューニング進捗を3行構成のステータス表示に反映する。
+        KataGo 起動シーケンス(main())から、チューニング進捗検出時に呼ばれる。
+
+        1行目: 固定の見出し(「初回起動時のAI最適化を行っています」)
+        2行目: 固定の注釈(「※処理には数分程度かかります」)
+        3行目: 累積フェーズ番号と、そのフェーズ内での進捗
+               (例: 「3個目の処理を実行中...(5/69)」。スピナーと同じ行に表示)
+
+        phase_count: 何個目のフェーズか(1始まり、累積カウント)。
+        current/phase_total: 現在のフェーズ内での進捗(0-indexed)と総数。
+        """
+        lines = [
+            "初回起動時のAI最適化を行っています",
+            "※処理には数分程度かかります",
+            f"{phase_count}個目の処理を実行中...（{current}/{phase_total}）",
+        ]
+        if self._status_lines != lines:
+            self._status_lines = lines
+            self.update()
+
     def _on_scale(self, v):
         try:
             self._scale = float(v)
@@ -182,9 +209,8 @@ class _SplashScreen(QWidget):
         例: name="logo_mark" → logo_mark_light.svg / logo_mark_dark.svg
         """
         try:
-            from pathlib import Path
             theme_mode = "dark" if T().BG.lightness() < 128 else "light"
-            assets_dir = Path(__file__).parent / "assets"
+            assets_dir = get_base_dir() / "gui" / "assets"
             svg_path = assets_dir / f"{name}_{theme_mode}.svg"
             if not svg_path.exists():
                 return None
@@ -248,6 +274,19 @@ class _SplashScreen(QWidget):
         except (TypeError, ValueError):
             self._spin_angle = 0
         self.update()
+
+    def mousePressEvent(self, ev):
+        """左クリック+ドラッグでウィンドウを移動可能にする。
+        スプラッシュ自体はボタン等の子要素を持たないシンプルな構成のため、
+        MainWindow の startSystemMove() 呼び出し(main_window.py 内)と同様に、
+        OS ネイティブのウィンドウ移動を直接起動する。"""
+        if ev.button() == Qt.MouseButton.LeftButton:
+            wh = self.windowHandle()
+            if wh:
+                wh.startSystemMove()
+                ev.accept()
+                return
+        super().mousePressEvent(ev)
 
     def closeEvent(self, ev):
         # アニメを止めてからクローズ
@@ -337,36 +376,86 @@ class _SplashScreen(QWidget):
             name_y = logo_top + self.LOGO_SIZE + 24 + fm.ascent()
             p.drawText(QPointF((W - nw) / 2, name_y), name)
 
-        # ── スピナー + ステータステキスト ─────────────────────────
-        status_text = "読み込み中..."
+        # ── ステータステキスト(複数行、中央揃え) + スピナー(最終行と同じ行) ──
+        # 通常時は1行(["読み込み中..."])、チューニング検出時は3行
+        # (見出し・注釈・進捗)になる。最終行だけスピナーと横並びにし、
+        # それ以外の行は単独で中央揃え表示する。
+        #
+        # 3行構成時のグループ分け:
+        #   - 1〜2行目(見出し+注釈): 「メインテキスト」グループ。
+        #     T().TEXT(白に近い濃い色)で強調し、行間を詰めて1つの文章の
+        #     ように見せる。
+        #   - 3行目(進捗): 「サブテキスト」グループ。T().TEXT2(従来通りの
+        #     控えめな色、通常時の「読み込み中...」と同じ)。メインテキスト
+        #     グループとの間は広めに空けて、視覚的に別グループと分かるようにする。
+        # 1行構成時(通常起動)は唯一の行が「最終行」として扱われるため、
+        # 従来通り T().TEXT2・グループ間隔なしで描画される(分岐不要)。
+        lines = self._status_lines
         p.setFont(Font_XS())
         fm2 = p.fontMetrics()
-        sw = fm2.horizontalAdvance(status_text)
+        line_h = fm2.height()
+        line_gap_in_group = 2    # グループ内(見出し・注釈の間)の行間
+        line_gap_between_group = 12  # グループ間(注釈 → 進捗)の行間
         spin_size = 14
         gap = 10  # スピナーとテキストの間隔
-        total_w = spin_size + gap + sw
-        # 配置基準 y(視覚中心): カード下端から余白を取る
-        bottom_center_y = H - 40   # 下端からの余白(WIDTH/HEIGHT拡大に伴い増量)
-        # スピナー描画(左)
-        sx = (W - total_w) / 2
-        sy_spin = bottom_center_y - spin_size / 2
-        # ベース円(全周、薄め)
-        p.setPen(QPen(T().PANEL2, 2))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        spin_rect = QRectF(sx, sy_spin, spin_size, spin_size)
-        p.drawEllipse(spin_rect.adjusted(1, 1, -1, -1))
-        # 回転する円弧(90度ぶん)
-        # QPainter.drawArc の角度は 1/16 度単位、反時計回りが正
-        # アニメ値 _spin_angle は 0..359、時計回りに見せたいので -angle
-        p.setPen(QPen(T().TEXT2, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        start_angle = (-self._spin_angle) * 16
-        span_angle  = -90 * 16  # 時計回りに90度ぶん
-        p.drawArc(spin_rect.adjusted(1, 1, -1, -1).toRect(), start_angle, span_angle)
-        # ステータステキスト(右)
-        p.setPen(QPen(T().TEXT2))
-        text_x = sx + spin_size + gap
-        text_y = bottom_center_y + (fm2.ascent() - fm2.descent()) / 2
-        p.drawText(QPointF(text_x, text_y), status_text)
+
+        n_lines = len(lines)
+        # 各行の上から見たギャップのリスト(行 i と i+1 の間)を構築する。
+        # 3行構成: [グループ内, グループ間]、1〜2行構成: 全て従来通りの詰め間隔。
+        if n_lines == 3:
+            gaps = [line_gap_in_group, line_gap_between_group]
+        else:
+            gaps = [line_gap_in_group] * max(0, n_lines - 1)
+
+        block_h = n_lines * line_h + sum(gaps)
+        bottom_center_y = H - 40  # 旧実装と同じ下端基準(最終行の中心がここに来る)
+        # 最終行の中心から、(n_lines-1)行ぶんの行高さ+ギャップを遡って
+        # 1行目の中心を求める。
+        block_top_y = bottom_center_y - (n_lines - 1) * line_h - sum(gaps)
+
+        line_centers = []
+        y = block_top_y
+        for i in range(n_lines):
+            line_centers.append(y)
+            if i < len(gaps):
+                y += line_h + gaps[i]
+
+        for i, line_text in enumerate(lines):
+            is_last = (i == n_lines - 1)
+            line_center_y = line_centers[i]
+            # メインテキスト(1〜2行目、3行構成時のみ該当)は濃い色で強調。
+            # 最終行(進捗 or 通常時の「読み込み中...」)は従来通り控えめな色。
+            text_color = T().TEXT2 if is_last else T().TEXT
+            if is_last:
+                # 最終行: スピナー + テキストを横並びで中央揃え
+                lw = fm2.horizontalAdvance(line_text)
+                total_w = spin_size + gap + lw
+                sx = (W - total_w) / 2
+                sy_spin = line_center_y - spin_size / 2
+                # ベース円(全周、薄め)
+                p.setPen(QPen(T().PANEL2, 2))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                spin_rect = QRectF(sx, sy_spin, spin_size, spin_size)
+                p.drawEllipse(spin_rect.adjusted(1, 1, -1, -1))
+                # 回転する円弧(90度ぶん)
+                # QPainter.drawArc の角度は 1/16 度単位、反時計回りが正
+                # アニメ値 _spin_angle は 0..359、時計回りに見せたいので -angle
+                p.setPen(QPen(T().TEXT2, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                start_angle = (-self._spin_angle) * 16
+                span_angle  = -90 * 16  # 時計回りに90度ぶん
+                p.drawArc(spin_rect.adjusted(1, 1, -1, -1).toRect(), start_angle, span_angle)
+                # テキスト(スピナーの右)
+                p.setPen(QPen(text_color))
+                text_x = sx + spin_size + gap
+                text_y = line_center_y + (fm2.ascent() - fm2.descent()) / 2
+                p.drawText(QPointF(text_x, text_y), line_text)
+            else:
+                # 通常行: 単独で中央揃え
+                lw = fm2.horizontalAdvance(line_text)
+                text_x = (W - lw) / 2
+                text_y = line_center_y + (fm2.ascent() - fm2.descent()) / 2
+                p.setPen(QPen(text_color))
+                p.drawText(QPointF(text_x, text_y), line_text)
 
         p.end()
 
@@ -407,8 +496,14 @@ def main():
 
     # ── KataGo モデル数チェック ─────────────────────────────────
     # katago/models/ 直下の .bin.gz がちょうど1個あることを確認する。
-    # 0個 / 複数の場合はユーザーにエラーダイアログを表示してアプリを終了する。
-    _check_models_or_exit()
+    # 0個 / 複数の場合はスプラッシュを閉じてからエラーダイアログを表示して終了する。
+    # スプラッシュを閉じずに QMessageBox を出すと画面が固まって見えるため、
+    # エラーが確定した場合のみスプラッシュを先に閉じる。
+    from gui.main_window import MainWindow as _MW
+    if len(_MW._scan_models()) != 1:
+        splash.close()
+        app.processEvents()
+        _check_models_or_exit()
 
     # ── KataGoエンジンをワーカースレッドで起動 ─────────────────
     # start() は _ready_event.wait(timeout=600) でブロックするため、
@@ -421,6 +516,11 @@ def main():
     # ・start() は subprocess.Popen + _ready_event.wait() → ワーカーへ
     engine = _build_startup_engine()
     worker = _EngineStartupWorker(engine)
+
+    # OpenCL チューニング進捗(初回起動・新環境のみ発生)をスプラッシュの
+    # ステータステキストに反映する。通常起動(チューニング済み環境)では
+    # このシグナルは一度も発火せず、「読み込み中...」のまま完了する。
+    worker.tuning_progress.connect(splash.set_tuning_progress)
 
     # メインスレッドのイベントループでワーカー完了を待つ
     # (この間 splash のアニメは正常に動き続ける)
@@ -497,17 +597,35 @@ class _EngineStartupWorker(QThread):
     QEventLoop で完了を待ちつつイベント処理を継続する。
 
     エラーは self.error に格納し、finished シグナル後に main() で確認する。
+
+    tuning_progress シグナル:
+        OpenCL チューニング(初回起動・新環境のみ発生)の進捗を中継する。
+        KataGoEngine.on_tuning_progress コールバックは KataGoEngine 内部の
+        _drain_stderr スレッド(本ワーカーともメインスレッドとも異なる)
+        から呼ばれるため、直接 UI を更新せず、Qt のシグナル/スロット機構
+        (emit はスレッドセーフ)経由でメインスレッドに中継する。
+        引数: (phase_count: int, current: int, phase_total: int)
     """
+    tuning_progress = pyqtSignal(int, int, int)
+
     def __init__(self, engine: "KataGoEngine"):
         super().__init__()
         self._engine = engine
         self.error: Optional[str] = None
+        # KataGoEngine からの進捗コールバックを、このスレッドのシグナルに中継する。
+        # コールバック自体は _drain_stderr スレッドから呼ばれるが、
+        # pyqtSignal.emit() はスレッドセーフなのでそのまま呼んでよい。
+        self._engine.on_tuning_progress = self.tuning_progress.emit
 
     def run(self):
         try:
             self._engine.start()
         except Exception as e:
             self.error = str(e)
+        finally:
+            # 起動完了後はもうチューニングログは出ないが、念のため
+            # コールバック参照を解除しておく(本ワーカー終了後の参照保持を防ぐ)。
+            self._engine.on_tuning_progress = None
 
 
 

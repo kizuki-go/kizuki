@@ -11,28 +11,23 @@ MainWindow に提供する Mixin。
 from __future__ import annotations
 import time
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from gui._mixins._types import MainWindowProto
 
 from PyQt6.QtCore import (
-    Qt, QPoint, QSettings, QDateTime, QVariantAnimation,
+    Qt,
 )
-from PyQt6.QtWidgets import QMenu, QSlider, QListWidget, QAbstractItemView, QWidgetAction
+from PyQt6.QtWidgets import QSlider
 
 from core.katago_engine import KataGoEngine
-from core.analyzer import MoveAnalysis
 from core.sgf_parser import sgf_coord_to_pos, sgf_coord_to_human
-from core.game_state import GameState
 
 from gui.infra import (
-    BlunderInfo, SoundPlayer, set_player_rank, _profile, _profile_method,
+    BlunderInfo, set_player_rank, _profile, _profile_method,
 )
-from gui.widgets.board import BoardWidget
-from gui.widgets.panels import InfoPanel, MoveInfoCard
-from gui.widgets.common import _RankItemDelegate
+from gui.widgets.common import SLIDER_HANDLE
 from gui.dialogs import _FirstLaunchRankDialog
 
 logger = logging.getLogger(__name__)
@@ -91,12 +86,10 @@ class EngineCtrlMixin:
         QSettings("Kizuki", "Kizuki").setValue("analysis_enabled", enabled)
         if enabled:
             self._start_pondering_current()
-            self._status_bar.showMessage("AI解析 ON")
         else:
             # 形勢判断 ON なら ownership 取得用にポンダリングは継続
             if not self._ownership_enabled:
                 self._engine.stop_pondering()
-            self._status_bar.showMessage("AI解析 OFF")
             # AI 解析系の盤面情報（候補手・着手評価）をクリアして現局面を再描画
             self._refresh_board()
 
@@ -142,7 +135,11 @@ class EngineCtrlMixin:
         """現在局面のポンダリングを開始。
         AI 解析 または 形勢判断 のいずれかが ON なら走らせる
         （形勢判断のみ ON の場合は ownership 取得用）。
-        加えて、直前手が未解析なら補助解析を発動して悪手判定の前手データを得る。
+
+        直前手が未解析の場合、悪手判定（勝率変化・目差変化）は計算できず
+        「前の手を解析してください」と表示する（補助解析による自動解析の
+        後追いは行わない。前ノードへ実際に移動してポンダリングするか、
+        本譜を最後まで解析済みにしておく必要がある）。
         """
         if not (self._ai_enabled or self._ownership_enabled): return
         if not self._game_state: return
@@ -236,10 +233,6 @@ class EngineCtrlMixin:
         color = node.move_color or self._game_state.turn
         coord = node.get(color, "") if node.move_color else ""
         human = sgf_coord_to_human(coord, self._game.board_size) if coord else "—"
-
-        # ルート全体の visits（maxVisits の対象）を表示。best_moves[0].visits は
-        # 1番候補手のみの visits なので、上限値と直接対応しない。
-        visits = result.root_visits
 
         # ponder 結果で blunder の before/after を更新する。
         # after: ポンダリング（高visits）の root_win_rate / root_score_lead を使用
@@ -425,12 +418,6 @@ class EngineCtrlMixin:
         # アゲハマ: GameState._black_captures = 白のアゲハマ、_white_captures = 黒のアゲハマ
         self._info.update_captures(
             self._game_state._white_captures, self._game_state._black_captures)
-
-        turn_str = "黒番" if self._game_state.turn == "B" else "白番"
-        self._status_bar.showMessage(
-            f"解析中  {turn_str}  勝率 {result.root_win_rate*100:.1f}%"
-            f"  visits {visits}"
-        )
 
         # ── 重い処理は中間結果ではスロットリング + シグネチャチェック ──
         # _update_graph() と _branch_tree.update_tree() はどちらも手数 N に比例する
@@ -931,6 +918,39 @@ class EngineCtrlMixin:
         """
         self._graph_struct_cache = None
 
+    @staticmethod
+    def _is_lineage(a, b) -> bool:
+        """ノード a と b が「同じ手順を辿った祖先・子孫関係」にあるかを判定する。
+        a is b も True。
+
+        単純な祖先・子孫関係(parent を辿って到達できるか)だけでは不十分。
+        例えば「本譜50手目」→「本譜50手目から分岐したサブ手順の90手目」は、
+        90手目ノードの祖先を辿れば50手目ノードに到達するため祖先・子孫関係には
+        あるが、ユーザー体験としては「別のラインに切り替わった」というべき
+        ケースである(51手目以降のどこかで children[0] 以外を選んでいるため)。
+
+        そのため、ここでは「祖先から子孫まで、毎回 children[0](本譜の手)だけを
+        選んで到達できるか」を見る。途中で children[1] 以降(分岐)を経由している
+        場合は False(=ライン切り替え)とする。
+        """
+        def _reachable_via_main_only(ancestor, descendant) -> bool:
+            """ancestor から children[0] だけを辿って descendant に到達できるか。"""
+            n = ancestor
+            while True:
+                if n is descendant:
+                    return True
+                if not n.children:
+                    return False
+                n = n.children[0]
+
+        if a is b:
+            return True
+        if _reachable_via_main_only(a, b):
+            return True
+        if _reachable_via_main_only(b, a):
+            return True
+        return False
+
     @_profile_method("_update_graph")
     def _update_graph(self: "MainWindowProto"):
         """解析済みノードの目差グラフを更新する。
@@ -944,10 +964,23 @@ class EngineCtrlMixin:
         として保持し、ポンダリング中の繰り返し呼び出しでは再計算しない。
         ノード移動・追加・削除時は _invalidate_graph_struct_cache() でキャッシュを
         破棄する。
+
+        ライン切り替え時のフェード演出:
+        前回の現在ノードと今回の現在ノードが同じ手順を辿った祖先・子孫関係に
+        ない場合 ―― 典型的には「メインライン⇔分岐」や「分岐A⇔分岐B」の切り替え
+        ―― グラフ全体をフェードアウト→データ差替→フェードインで切り替える
+        (WinRateGraph.set_data_sparse の animate=True 経路)。同じ系譜内の
+        手戻り・手進めでは従来通り即時反映する(連続的な手の移動でフェードが
+        入ると煩わしいため)。
         """
         if not self._game or not self._game_state: return
 
         cur_node = self._game_state.current_node
+
+        # ── ライン切り替え判定(構造キャッシュとは独立して毎回行う) ──
+        prev_node = getattr(self, "_graph_last_cur_node", None)
+        line_switched = prev_node is not None and not self._is_lineage(prev_node, cur_node)
+        self._graph_last_cur_node = cur_node
 
         # ── 構造キャッシュの再利用 or 再構築 ──
         cache_key = (id(cur_node), id(self._game.root))
@@ -1019,7 +1052,8 @@ class EngineCtrlMixin:
         graph = self._info.get_graph()
         if xs:
             # 解析データあり: 通常通り曲線を描画
-            graph.set_data_sparse(xs, ys, graph_total)
+            # ライン切り替え時のみフェードで切り替え、同一ライン内の手戻りは即時反映
+            graph.set_data_sparse(xs, ys, graph_total, animate=line_switched)
         else:
             # 解析データなし(解析OFF や新規作成直後): 曲線データは空のままで、
             # X軸範囲(目盛りラベル)だけ手数に応じて更新する。これにより

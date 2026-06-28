@@ -1,0 +1,8 @@
+# Kizuki — 囲碁AI解析
+# Python 3.10 以上が必要です。
+#
+# インストール:
+#   pip install -r requirements.txt
+
+PyQt6>=6.4.0
+pyqtgraph>=0.13.0

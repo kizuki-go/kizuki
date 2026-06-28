@@ -15,15 +15,17 @@ panels は同一 widgets レイヤから graph.py のみ参照する。
 - MoveInfoCard: 着手情報カード(候補手・勝率・目差差・バッジ等)
 """
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from gui.widgets.branchtree import BranchTreeWidget
 
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QSizePolicy,
-    QScrollArea, QScrollBar, QGraphicsOpacityEffect,
+    QScrollArea,
 )
 from PyQt6.QtCore import (
     Qt, QPointF, QRectF, QSize, QEvent,
-    QVariantAnimation, QEasingCurve,
 )
 from PyQt6.QtGui import (
     QPainter,
@@ -34,13 +36,11 @@ from PyQt6.QtGui import (
     QColor,
     QPixmap,
     QFont,
-    QFontMetrics,
 )
 
 from gui.theme import (
-    T, EVAL_COLORS, LIGHT_BLUNDER_COLORS,
-    SP_XS, SP_SM, SP_MD, SP_LG, SP_XL,
-    PAD_CARD,
+    T, EVAL_COLORS, SP_XS,
+    SP_SM, SP_MD, SP_LG, SP_XL, PAD_CARD,
 )
 from gui.fonts import Font_XS, Font_SM, Font_MD, Font_XXL, FontMono_SM, FontMono_LG
 from gui.infra import _profile, _profile_method, eval_badge_tuple
@@ -308,7 +308,7 @@ class ScoreBoard(QWidget):
         を pixmap として生成する。フェードアニメ中は呼ばれない(動的)。
         実行内容は paintEvent の対応箇所と完全に同一(コピー元)。
         """
-        from PyQt6.QtGui import QFontMetrics, QPainterPath
+        from PyQt6.QtGui import QFontMetrics
         pm = QPixmap(int(round(W * dpr)), int(round(H * dpr)))
         pm.setDevicePixelRatio(dpr)
         pm.fill(Qt.GlobalColor.transparent)
@@ -325,7 +325,7 @@ class ScoreBoard(QWidget):
         STONE_TO_NAME_GAP = SP_SM
 
         fm_name = QFontMetrics(Font_MD(True))
-        fm_cap_in_stone = QFontMetrics(Font_XS(True))
+        QFontMetrics(Font_XS(True))
         CY = Y1 + ROW_H / 2
         name_baseline = CY + fm_name.ascent() / 2 - fm_name.descent() / 2
 
@@ -432,7 +432,7 @@ class ScoreBoard(QWidget):
             STONE_R   = STONE_DIA // 2
             STONE_TO_NAME_GAP = SP_SM
             fm_name = QFontMetrics(Font_MD(True))
-            fm_cap_in_stone = QFontMetrics(Font_XS(True))
+            QFontMetrics(Font_XS(True))
             CY = Y1 + ROW_H / 2
             name_baseline = CY + fm_name.ascent() / 2 - fm_name.descent() / 2
 
@@ -817,7 +817,7 @@ class MetricLabel(QWidget):
         p.setPen(QPen(self._color))
 
         fm_num  = QFontMetrics(self._num_font)
-        fm_unit = QFontMetrics(self._unit_font)
+        QFontMetrics(self._unit_font)
 
         # ベースライン = ascent を基準に上から配置
         baseline = fm_num.ascent()

@@ -28,11 +28,10 @@ if TYPE_CHECKING:
         QTimer, QRect, QPoint, QSize, QObject, pyqtBoundSignal,
     )
     from PyQt6.QtWidgets import (
-        QWidget, QStackedWidget, QScrollArea, QStatusBar, QSlider,
-        QLabel, QPushButton, QMenu, QListWidget, QActionGroup, QFrame,
-        QGraphicsOpacityEffect,
+        QWidget, QStackedWidget, QScrollArea, QStatusBar, QLabel,
+        QPushButton, QMenu, QListWidget, QActionGroup, QGraphicsOpacityEffect,
     )
-    from PyQt6.QtGui import QAction, QPixmap
+    from PyQt6.QtGui import QAction
     # アニメ系: 単一/グループを抽象化して扱うため共通基底 QAbstractAnimation を使う
     from PyQt6.QtCore import QAbstractAnimation, QPropertyAnimation
 
@@ -40,7 +39,6 @@ if TYPE_CHECKING:
     from core.game_state import GameState
     from core.katago_engine import KataGoEngine
     from core.sgf_parser import SGFGame, SGFNode
-    from core.analyzer import MoveAnalysis
 
     # ── gui パッケージ ───────────────────────────────
     from gui.widgets.board import BoardWidget, BoardContainer
@@ -121,6 +119,7 @@ if TYPE_CHECKING:
         # ─ 解析キャッシュ ─
         _node_analyses: dict
         _graph_struct_cache: Any
+        _graph_last_cur_node: Optional[SGFNode]
         _pondering_node: Optional[SGFNode]
 
         # ─ ponder 重複防止 / スロットル ─
@@ -194,9 +193,9 @@ if TYPE_CHECKING:
         _copy_act: QAction
         _save_act: QAction
         _ss_act: QAction
+        _ss_win_act: QAction
 
         # ─ ダイアログ ─
-        _color_adj_dialog: Optional[ColorAdjustmentDialog]
 
         # ═════════════════════════════════════════════════════════════
         # ウィンドウ状態 / アニメーション

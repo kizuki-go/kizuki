@@ -14,8 +14,7 @@ from typing import Optional
 
 from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QSizePolicy
 from PyQt6.QtCore import (
-    Qt, pyqtSignal, QPointF, QEvent, QTimer,
-    QVariantAnimation, QEasingCurve,
+    Qt, pyqtSignal, QPointF,
 )
 from PyQt6.QtGui import QPainter
 
@@ -145,6 +144,22 @@ class WinRateGraph(QWidget):
         self._cur_display_idx = 0
         self._cur_display_score = None
         self._cur_anim = None  # QVariantAnimation(遅延生成)
+        self._last_curve_xs: list = []
+        self._last_curve_ys: list = []
+        # ── ライン切り替え時のフェードアウト→データ差替→フェードイン用 ──
+        # グラフ全体(曲線・軸ラベル・縦線・スコアラベル)を対象に
+        # QGraphicsOpacityEffect で透明度をアニメさせる。
+        # フェードアウトが完全に終わるのを待たず、透明度が十分低くなった
+        # 時点でデータ差し替え+フェードイン開始する(クロスフェード的な被せ)。
+        # これによりフェードアウト後半とフェードイン前半が時間的に重なり、
+        # 合計の体感時間が FADE_OUT_MS + FADE_IN_MS より短くなる。
+        self._fade_anim = None       # QPropertyAnimation(遅延生成)
+        self._fade_effect = None     # QGraphicsOpacityEffect(遅延生成)
+        self._fade_pending_data = None  # フェード中に差し替える (xs, ys, total)
+        self._fade_swapped = False   # このフェードサイクルでデータ差替済みか
+        self._FADE_OUT_MS = 150      # フェードアウト基準時間(閾値到達で打ち切られる)
+        self._FADE_IN_MS = 150       # フェードイン時間
+        self._FADE_CROSS_THRESHOLD = 0.3  # この透明度以下でフェードイン開始
         self._setup()
 
     def _setup(self):
@@ -415,6 +430,19 @@ class WinRateGraph(QWidget):
         self.score_leads = []
         self._label_score = None
         self._xy_map = {}
+        self._last_curve_xs = []
+        self._last_curve_ys = []
+        # フェードアニメも中断し、effect を外して不透明状態に戻す
+        if self._fade_anim is not None:
+            self._fade_anim.stop()
+            self._fade_anim = None
+        self._fade_pending_data = None
+        if self._fade_effect is not None:
+            try:
+                self.setGraphicsEffect(None)
+            except Exception:
+                pass
+            self._fade_effect = None
         if self._use_pg:
             self._curve_black.setData([], [])
             self._curve_white.setData([], [])
@@ -449,7 +477,8 @@ class WinRateGraph(QWidget):
         return xs_aug, ys_aug
 
     @_profile_method("Graph.set_data_sparse")
-    def set_data_sparse(self, xs: list[int], ys: list[float], total: int):
+    def set_data_sparse(self, xs: list[int], ys: list[float], total: int,
+                         animate: bool = False):
         """解析済み手だけの (x, y) ペアでグラフを更新する。
 
         X軸範囲は total（棋譜全体の手数）に固定する。
@@ -465,6 +494,19 @@ class WinRateGraph(QWidget):
         ・xs でソート
         ・符号がまたぐ区間はゼロクロス点を補間して挿入
         を行う。
+
+        animate=True の場合、グラフ全体(曲線・軸ラベル・縦線・スコアラベル)を
+        フェードアウト(150ms)→データ差し替え→フェードイン(150ms)で切り替える
+        (メインライン⇔分岐などライン切り替え時用、現在手の縦線アニメと同じ
+        300ms 体感に揃えている)。同一ライン内の手戻り(手が増減するだけ)では
+        animate=False で即時反映する。
+
+        ポンダリング中の連続更新対応:
+        フェード実行中に同一ノードのままポンダリング結果が更新され
+        animate=False で本メソッドが呼ばれることがある(0.1秒間隔)。このとき
+        フェードを都度やり直すとチカチカするだけになるため、フェード中は
+        最新データを保留キューに積んでおき、フェードイン完了時にまとめて
+        確定反映する(_on_fade_in_finished)。
         """
         if not self._use_pg or not xs: return
 
@@ -479,23 +521,150 @@ class WinRateGraph(QWidget):
             xs_s.insert(0, 0)
             ys_s.insert(0, 0.0)
 
-        # ── ゼロクロス補間で符号変化点を挿入 ──
-        xs_aug, ys_aug = self._zero_cross_interpolate(xs_s, ys_s)
+        # 元の (xs, ys) で xy_map を作る（補間点は除外、初期点 x=0 は含む）
+        self._xy_map = dict(zip(xs_s, ys_s))
 
-        # ── fillLevel=0 で塗るため、黒用 / 白用にクリップ ──
+        fade_running = self._fade_anim is not None and self._fade_anim.state() == self._fade_anim.State.Running
+
+        if animate:
+            self._start_fade_switch(xs_s, ys_s, total)
+        elif fade_running:
+            # フェード実行中の非アニメ更新(主にポンダリングの連続結果反映):
+            # フェードはやり直さず、最新データを保留キューに積んで
+            # フェードイン完了時にまとめて確定反映する。
+            self._fade_pending_data = (xs_s, ys_s, total)
+        else:
+            self._apply_curve_data(xs_s, ys_s)
+            self._apply_y_range(ys_s)
+            # 次回フェード切り替えの開始点として、即時反映時も保存しておく
+            self._last_curve_xs = xs_s
+            self._last_curve_ys = ys_s
+            # X軸範囲は棋譜全体に固定（xs の範囲外でも伸ばさない）
+            # set_total_moves を経由して末尾追従ロジックを通す(直前末尾にいた場合、
+            # 範囲拡大に合わせて縦線も瞬時に新末尾へスナップ)。
+            self.set_total_moves(total)
+
+    def _apply_curve_data(self, xs_s: list, ys_s: list):
+        """ソート済み (xs_s, ys_s) をゼロクロス補間した上で曲線に反映する。
+        アニメ中の中間フレームにも使う共通処理。"""
+        xs_aug, ys_aug = self._zero_cross_interpolate(xs_s, ys_s)
         ys_black = [max(0.0, v) for v in ys_aug]
         ys_white = [min(0.0, v) for v in ys_aug]
         self._curve_black.setData(xs_aug, ys_black)
         self._curve_white.setData(xs_aug, ys_white)
 
-        # 元の (xs, ys) で xy_map を作る（補間点は除外、初期点 x=0 は含む）
-        self._xy_map = dict(zip(xs_s, ys_s))
-        self._apply_y_range(ys_s)
+    # ── ライン切り替え時のフェードアウト→データ差替→フェードイン ──────────
+    def _ensure_fade_effect(self):
+        """グラフ全体(self)に QGraphicsOpacityEffect を遅延生成して返す。
+        曲線・軸ラベル・縦線・スコアラベルはすべて self の子ウィジェットなので、
+        self に対して1つの opacity effect をかけるだけで全体が同時にフェードする。"""
+        if self._fade_effect is None:
+            from PyQt6.QtWidgets import QGraphicsOpacityEffect
+            eff = QGraphicsOpacityEffect(self)
+            eff.setOpacity(1.0)
+            self.setGraphicsEffect(eff)
+            self._fade_effect = eff
+        return self._fade_effect
 
-        # X軸範囲は棋譜全体に固定（xs の範囲外でも伸ばさない）
-        # set_total_moves を経由して末尾追従ロジックを通す(直前末尾にいた場合、
-        # 範囲拡大に合わせて縦線も瞬時に新末尾へスナップ)。
-        self.set_total_moves(total)
+    def _start_fade_switch(self, xs_new: list, ys_new: list, total: int):
+        """グラフ全体をフェードアウトしつつ、透明度が一定以下に下がった時点で
+        データを差し替えてフェードインを開始する(クロスフェード的な被せ)。
+        ライン切り替え(メインライン⇔分岐など)であることがユーザーにわかる、
+        データの変化量に依存しない一定の体感を提供する。"""
+        from PyQt6.QtCore import QPropertyAnimation, QEasingCurve
+
+        # 既存のフェードが進行中なら止めて、今表示している透明度から
+        # 改めてフェードアウトを開始する(連続したライン切り替えでも破綻しない)。
+        if self._fade_anim is not None:
+            self._fade_anim.stop()
+
+        self._fade_pending_data = (xs_new, ys_new, total)
+        self._fade_swapped = False
+
+        eff = self._ensure_fade_effect()
+        start_opacity = eff.opacity()
+
+        anim = QPropertyAnimation(eff, b"opacity", self)
+        anim.setDuration(self._FADE_OUT_MS)
+        anim.setStartValue(start_opacity)
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.valueChanged.connect(self._on_fade_out_value_changed)
+        anim.finished.connect(self._on_fade_out_finished)
+        self._fade_anim = anim
+        anim.start()
+
+    def _on_fade_out_value_changed(self, value):
+        """フェードアウト中の透明度を監視し、閾値以下になった時点で
+        即座にデータを差し替えてフェードインへ切り替える(被せ)。
+        閾値に達する前にアニメが自然終了した場合(stepが粗い等)は
+        _on_fade_out_finished 側でフォールバックする。"""
+        if self._fade_swapped:
+            return
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return
+        if value <= self._FADE_CROSS_THRESHOLD:
+            self._swap_pending_data_and_start_fade_in()
+
+    def _on_fade_out_finished(self):
+        """フェードアウトの自然終了時のフォールバック。
+        _on_fade_out_value_changed で既に閾値到達によりデータ差替済みなら
+        何もしない(フェードインは既に進行中)。"""
+        if self._fade_swapped:
+            return
+        self._swap_pending_data_and_start_fade_in()
+
+    def _swap_pending_data_and_start_fade_in(self):
+        """保留中のデータを反映し、現在の透明度からフェードインを開始する。
+        フェードアウトアニメが実行中なら止める(同一プロパティの二重操作を防ぐ)。"""
+        if self._fade_anim is not None:
+            self._fade_anim.stop()
+        self._fade_swapped = True
+        pending = self._fade_pending_data
+        self._fade_pending_data = None
+        if pending is not None:
+            xs_s, ys_s, total = pending
+            self._apply_curve_data(xs_s, ys_s)
+            self._apply_y_range(ys_s)
+            self._last_curve_xs = xs_s
+            self._last_curve_ys = ys_s
+            self.set_total_moves(total)
+        self._start_fade_in()
+
+    def _start_fade_in(self):
+        from PyQt6.QtCore import QPropertyAnimation, QEasingCurve
+        eff = self._ensure_fade_effect()
+        anim = QPropertyAnimation(eff, b"opacity", self)
+        anim.setDuration(self._FADE_IN_MS)
+        anim.setStartValue(eff.opacity())
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.finished.connect(self._on_fade_in_finished)
+        self._fade_anim = anim
+        anim.start()
+
+    def _on_fade_in_finished(self):
+        """フェードイン完了: opacity effect を外し(常時effectを持たせると
+        パフォーマンスに影響するため)、フェード中に届いた保留データが
+        あれば続けて反映する。"""
+        try:
+            self.setGraphicsEffect(None)
+        except Exception:
+            pass
+        self._fade_effect = None
+        self._fade_anim = None
+        self._fade_swapped = False
+        pending = self._fade_pending_data
+        self._fade_pending_data = None
+        if pending is not None:
+            xs_s, ys_s, total = pending
+            self._apply_curve_data(xs_s, ys_s)
+            self._apply_y_range(ys_s)
+            self._last_curve_xs = xs_s
+            self._last_curve_ys = ys_s
+            self.set_total_moves(total)
 
     def update_theme(self):
         """テーマ切り替え時に pyqtgraph の色を再適用する。"""

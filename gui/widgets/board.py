@@ -16,19 +16,19 @@ from typing import Optional
 
 from PyQt6.QtWidgets import QWidget, QSizePolicy
 from PyQt6.QtCore import (
-    Qt, pyqtSignal, QPointF, QRectF, QVariantAnimation, QEasingCurve,
+    Qt, pyqtSignal, QPointF, QRectF,
 )
 from PyQt6.QtGui import (
     QPainter, QPainterPath, QPainterPathStroker,
     QPen, QBrush, QColor, QImage, QPixmap,
-    QRadialGradient, QTransform,
+    QRadialGradient,
 )
 
 from core.sgf_parser import sgf_coord_to_pos, pos_to_sgf_coord
 
 from gui.theme import T, R_MD, COLS
 from gui.fonts import F, Fmono
-from gui.infra import _profile, _profile_method, BlunderInfo
+from gui.infra import _profile, _profile_method, BlunderInfo, get_base_dir
 
 logger = logging.getLogger(__name__)
 
@@ -39,18 +39,9 @@ class BoardWidget(QWidget):
 
     # オーバーレイのフェードアニメ設定
     _OVERLAY_FADE_DURATION_MS = 250
-    # 盤面反転(時計回り180度回転 + 一時縮小)の所要時間
-    _FLIP_ANIM_DURATION_MS = 1500
-    # 反転アニメ中の座標ラベル制御:
-    # - フェードアウト: 回転開始と並行(回転全体の _FLIP_COORD_FADEOUT_RATIO)
-    #   0.12 = 開始 12%(=180ms@1500ms)で alpha を 1→0
-    # - 完全非表示: フェードアウト完了から回転完了まで(視覚ノイズ除去)
-    # - フェードイン: 回転完了後に独立アニメで実施(_FLIP_COORD_FADEIN_DURATION_MS)
-    #   回転中は完全非表示、回転が止まってから座標が戻る挙動。
-    _FLIP_COORD_FADEOUT_RATIO = 0.12
-    _FLIP_COORD_FADEIN_DURATION_MS = 180
-    # 棋譜内容差し替え時(新規作成・SGFオープン・貼り付け)のクロスフェード時間。
-    # 旧盤面 pixmap が α=1→0、新通常描画が α=0→1 で重ね合わされる。
+    # 棋譜内容差し替え時(新規作成・SGFオープン・貼り付け・盤面反転)の
+    # クロスフェード時間。旧盤面 pixmap が α=1→0、新通常描画が α=0→1 で
+    # 重ね合わされる。
     _CONTENT_CHANGE_FADE_MS = 600
 
     def __init__(self):
@@ -60,7 +51,6 @@ class BoardWidget(QWidget):
         self.candidates: list = []
         self.last_move: Optional[tuple] = None
         self.blunder: Optional[BlunderInfo] = None
-        self.show_hints = True
         self.show_coords = False
         self.show_ownership = False        # 形勢判断オーバーレイ ON/OFF
         # 手順番号オーバーレイ:
@@ -80,42 +70,12 @@ class BoardWidget(QWidget):
         self.next_moves = []
         self.turn = "B"                    # 現在の手番（"B" or "W"）
         # 盤面反転（180度回転）の有無。flipped プロパティ経由で操作される。
-        # setter が時計回り180度回転 + 一時縮小のアニメを起動する。
+        # setter が start_content_change_anim() によるクロスフェードを起動する
+        # (回転アニメは目が回るとの指摘を受け、棋譜内容差し替え時と同じ
+        # クロスフェード演出に統一した。経緯は flipped.setter のコメント参照)。
         self._flipped = False
-        # 反転アニメの状態管理:
-        #   _flip_anim_progress: 0.0 → 1.0 (現在の進捗)。1.0 = 静止状態。
-        #   _flip_anim_from / _flip_anim_to: アニメ開始/終了時の flipped 値
-        #   アニメ中は _flip_anim_from の状態で _xy() を計算し、回転 transform で
-        #   描画。t=1.0 到達時に _flipped = _flip_anim_to に切り替わる。
-        self._flip_anim_progress: float = 1.0
-        self._flip_anim_from: bool = False
-        self._flip_anim_to: bool = False
-        self._flip_anim = None  # QVariantAnimation の参照保持
-        # アニメ中に毎フレーム同じ盤本体を描画するのは重い(_stones の RadialGradient
-        # 等で 60fps 維持が難しくカクつく)ため、開始時にキャプチャした QPixmap を
-        # 回転 transform で描画する方式にする。
-        # 物理的に正しい光の挙動を再現するため、構成を 2層に分ける:
-        # - 石なし盤面 pixmap : 木目・格子・星・候補手・形勢・手数等。回転対象。
-        # - 黒石/白石 pixmap  : 立体感(影・グラデ・ハイライト)込みの石1個分。
-        #                       回転しない(光源は世界座標で固定なので、石の絵は
-        #                       盤の回転と独立して位置だけ移動する)。
-        # 各フレームでは「盤面 pixmap を回転描画 → 各石位置(回転後の世界座標)に
-        # 石 pixmap を drawPixmap」する。これで光源固定の物理的に正しい見た目が
-        # 軽量に実現できる(grdient 計算は事前1回のみ、フレームあたり drawPixmap
-        # は ~200回程度で GPU 加速の対象)。
-        self._flip_anim_pixmap_board = None    # 石なし盤面(回転対象)
-        self._flip_anim_pixmap_stone_b = None  # 黒石1個分(回転しない)
-        self._flip_anim_pixmap_stone_w = None  # 白石1個分(回転しない)
-        # 石 pixmap のメタ情報(各石を描画する際の位置調整用)
-        self._flip_anim_stone_rad = 0.0        # 石半径(画面ピクセル)
-        self._flip_anim_stone_pad = 0          # pixmap 内マージン(影が枠外に出ないよう確保)
-        # 反転アニメ完了後の座標フェードイン用:
-        # 回転完了 (_flip_anim_progress = 1.0) になった時点で起動され、
-        # _flip_coord_fadein_progress を 0.0 → 1.0 へ補間する。回転中は
-        # 強制的に 0.0 に保持し、フェードイン完了後は 1.0(通常の座標表示)。
-        self._flip_coord_fadein_progress: float = 1.0
-        self._flip_coord_fadein_anim = None
-        # 棋譜内容差し替え時(新規作成・SGFオープン・貼り付け)のクロスフェード:
+        # 棋譜内容差し替え時(新規作成・SGFオープン・貼り付け・盤面反転)の
+        # クロスフェード:
         # - _content_change_pixmap_old: 切り替え直前の見た目をキャプチャした pixmap
         # - _content_change_progress: 0.0(切替直後) → 1.0(完了)
         #   paintEvent で 旧 pixmap (α=1-t) を下地に描画してから、新しい通常描画を
@@ -132,11 +92,12 @@ class BoardWidget(QWidget):
         # 必要に応じてアニメを起動する(呼び出し側コードは無改変で済む)。
         # キー:
         #   "ownership" — show_ownership に追従
-        #   "hints"     — show_hints     に追従
+        #   "hints"     — ai_enabled に追従(候補手表示は NavBar の「解析」
+        #                 トグルに連動。メニューの独立トグルは廃止済み)
         #   "move_num"  — bool(move_numbers) に追従
         self._overlay_alpha = {
             "ownership": 1.0 if self.show_ownership else 0.0,
-            "hints":     1.0 if self.show_hints     else 0.0,
+            "hints":     1.0 if self.ai_enabled else 0.0,
             "move_num":  1.0 if self.move_numbers   else 0.0,
             "badges":    1.0 if self.show_badges    else 0.0,
             # "coords" は他キーと違い「進捗値」として扱う:
@@ -209,159 +170,32 @@ class BoardWidget(QWidget):
 
     @flipped.setter
     def flipped(self, v: bool):
-        """flipped 切替時に、180度回転 + 一時縮小のアニメを起動する。
-        回転方向は反転 ON への切替なら時計回り、OFF への切替なら反時計回り
-        (詳細は _start_flip_anim の docstring 参照)。
+        """flipped 切替時に、棋譜内容差し替え時と同じクロスフェードを起動する。
+
+        旧実装は盤面を 180 度回転させる演出だったが、画面全体が大きく
+        回転し続ける動きは「目が回る」というユーザー指摘を受け、
+        start_content_change_anim() によるフェード切り替えに変更した
+        (現在の見た目を pixmap キャプチャ → 新しい配置に切り替え →
+        クロスフェードで滑らかに繋ぐ)。回転 transform 用の特殊な状態管理
+        (_flip_anim_from 等)は不要になり、_flipped は常に最終値を保持する。
+
         既存呼び出し側コード(self._board.flipped = v)を変更せずに済むよう、
         property setter としてフックする。"""
         v = bool(v)
-        if v == self._flipped and self._flip_anim_progress >= 1.0:
-            return  # 同値かつ静止中: 何もしない
-        # アニメ開始
-        # 開始時点の「描画用 flipped」を from として固定
-        self._flip_anim_from = self._render_flipped()
+        if v == self._flipped:
+            return  # 同値: 何もしない
+        # 切替前の見た目をキャプチャしてクロスフェードを起動してから、
+        # 論理状態を新しい値に切り替える(_xy 等は以降すぐ新配置を返す)。
+        self.start_content_change_anim()
         self._flipped = v
-        self._flip_anim_to = v
-        self._start_flip_anim()
-
-    def _render_flipped(self) -> bool:
-        """描画(_xy)が参照する flipped 値。
-        アニメ中は _flip_anim_from(開始時点の状態)、静止時は _flipped。
-        アニメ中は描画データを from 状態で固定し、それを transform で
-        回転するため、見た目連続性が保たれる(t=1.0 到達時に _flipped へ
-        切替わるが、180度回転 = 反転と同じなので位置が一致して連続)。"""
-        if self._flip_anim_progress < 1.0:
-            return self._flip_anim_from
-        return self._flipped
-
-    def _start_flip_anim(self):
-        """盤面180度回転のアニメを起動。
-        _flip_anim_progress を 0.0 → 1.0 へ補間する。
-        回転方向は _flip_anim_to によって決まる:
-          - _flip_anim_to=True (反転ON へ向かう): 時計回り
-          - _flip_anim_to=False (反転OFF へ戻る): 反時計回り
-        180度回転なので始点と終点の位置は方向によらず一致するが、
-        アニメ中の途中位置が鏡像になり、ON/OFF で逆方向に回る視覚効果が得られる。
-        パフォーマンス対策として、開始時に「石なし盤面」「黒石1個」「白石1個」
-        の 3つの pixmap を生成する。アニメ中の各フレームは:
-          1. 石なし盤面 pixmap を回転 transform で描画(下地)
-          2. 各石の論理位置を _xy で取得 → 回転 transform を適用 → 画面座標
-          3. その画面座標に石 pixmap を drawPixmap(回転なし)
-        という流れで、光源を世界座標で固定したまま盤だけが回転する物理的に
-        正しい挙動を、軽量に実現する(grdient 計算は事前1回のみ、フレーム
-        あたり drawPixmap は ~200回程度で GPU 加速の対象)。"""
-        from PyQt6.QtCore import QVariantAnimation, QEasingCurve
-        # 既存アニメは停止(連打時に滑らかに新規起動)
-        if self._flip_anim is not None:
-            try:
-                self._flip_anim.stop()
-            except RuntimeError:
-                pass
-            self._flip_anim = None
-        # 進行中の座標フェードインアニメも停止(連打時に新しい回転が始まるので
-        # 進行中のフェードインを破棄)。回転中は座標を非表示にしたいので、
-        # _flip_coord_fadein_progress を 0.0 にリセット。
-        if self._flip_coord_fadein_anim is not None:
-            try:
-                self._flip_coord_fadein_anim.stop()
-            except RuntimeError:
-                pass
-            self._flip_coord_fadein_anim = None
-        self._flip_coord_fadein_progress = 0.0
-        # 古い pixmap があれば破棄
-        self._flip_anim_pixmap_board = None
-        self._flip_anim_pixmap_stone_b = None
-        self._flip_anim_pixmap_stone_w = None
-        # progress を 0 にしてから sync して pixmap キャプチャ。
-        # ここで _render_flipped() は _flip_anim_from を返す状態になっており、
-        # _xy() が「アニメ開始時の論理状態」で位置を計算する。
-        self._flip_anim_progress = 0.0
-        # キャプチャ前に _overlay_alpha 等の状態を最新化(paintEvent 冒頭で
-        # 呼ばれる sync を、ここでも一度走らせて pixmap が現フレームの
-        # オーバーレイ alpha を反映するようにする)。
-        self._sync_overlay_alpha_targets()
-        # ウィジェットサイズが未確定(初期化直後など)ならキャプチャしない
-        if self.width() > 0 and self.height() > 0:
-            try:
-                self._capture_flip_pixmap()
-            except Exception:
-                self._flip_anim_pixmap_board = None
-                self._flip_anim_pixmap_stone_b = None
-                self._flip_anim_pixmap_stone_w = None
-        anim = QVariantAnimation(self)
-        anim.setDuration(self._FLIP_ANIM_DURATION_MS)
-        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        anim.setStartValue(0.0)
-        anim.setEndValue(1.0)
-
-        def _on_changed(t):
-            try:
-                self._flip_anim_progress = float(t)
-                self.update()
-            except (RuntimeError, TypeError, ValueError):
-                pass
-
-        def _on_finished():
-            self._flip_anim_progress = 1.0
-            self._flip_anim = None
-            # キャッシュ pixmap を破棄してメモリ解放
-            self._flip_anim_pixmap_board = None
-            self._flip_anim_pixmap_stone_b = None
-            self._flip_anim_pixmap_stone_w = None
-            # 回転完了 → 座標フェードインアニメを起動
-            self._start_flip_coord_fadein_anim()
-            self.update()
-
-        anim.valueChanged.connect(_on_changed)
-        anim.finished.connect(_on_finished)
-        self._flip_anim = anim
-        anim.start()
-
-    def _start_flip_coord_fadein_anim(self):
-        """反転アニメ完了直後に呼ぶ: 座標ラベルを 0→1 へフェードインする。
-        回転中は _flip_coord_fadein_progress=0.0 で完全非表示、回転完了で
-        ここから _FLIP_COORD_FADEIN_DURATION_MS かけて 1.0 まで補間する。"""
-        from PyQt6.QtCore import QVariantAnimation, QEasingCurve
-        # 既存があれば停止
-        if self._flip_coord_fadein_anim is not None:
-            try:
-                self._flip_coord_fadein_anim.stop()
-            except RuntimeError:
-                pass
-            self._flip_coord_fadein_anim = None
-        self._flip_coord_fadein_progress = 0.0
-        anim = QVariantAnimation(self)
-        anim.setDuration(self._FLIP_COORD_FADEIN_DURATION_MS)
-        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        anim.setStartValue(0.0)
-        anim.setEndValue(1.0)
-
-        def _on_changed(t):
-            try:
-                self._flip_coord_fadein_progress = float(t)
-                self.update()
-            except (RuntimeError, TypeError, ValueError):
-                pass
-
-        def _on_finished():
-            self._flip_coord_fadein_progress = 1.0
-            self._flip_coord_fadein_anim = None
-            self.update()
-
-        anim.valueChanged.connect(_on_changed)
-        anim.finished.connect(_on_finished)
-        self._flip_coord_fadein_anim = anim
-        anim.start()
 
     def _xy(self, col, row):
         """石とそれに紐づく要素（候補手・最後の手・手順番号・形勢判断
         マーカー・評価バッジ・次の手マーカー）の座標変換。
-        _render_flipped() が True なら 180度回転した位置を返す。
-        アニメ中は _flip_anim_from(開始時点)で固定され、回転 transform
-        側で見かけの位置を補間する仕組み。"""
+        self._flipped が True なら 180度回転した位置を返す。"""
         ox, oy = self._orig()
         c = self._cell()
-        if self._render_flipped():
+        if self._flipped:
             col = self.board_size - 1 - col
             row = self.board_size - 1 - row
         return ox + col * c, oy + row * c
@@ -376,7 +210,7 @@ class BoardWidget(QWidget):
         return self.board_size - 1 - col, self.board_size - 1 - row
 
     def _sync_overlay_alpha_targets(self):
-        """show_ownership / show_hints / bool(move_numbers) の現在状態を見て、
+        """show_ownership / 候補手(ai_enabled) / bool(move_numbers) の現在状態を見て、
         各オーバーレイの α 目標値を再計算し、目標値が変化していれば
         QVariantAnimation でフェードを起動する。
 
@@ -391,14 +225,16 @@ class BoardWidget(QWidget):
         from PyQt6.QtCore import QVariantAnimation, QEasingCurve
         targets = {
             "ownership": 1.0 if self.show_ownership else 0.0,
-            # hints は以下の条件で表示:
-            #   - メニュートグル(show_hints) ON
-            #   - かつ「候補手データあり」or「AI解析ON」
-            # AI解析ON中は着手で candidates が一瞬空になる経路があっても α を
-            # 維持してフェードチラつきを防ぐ(データ到着時に瞬時表示)。
-            # 解析OFF時に candidates=[] にされた時はこの条件式が False になり
-            # フェードアウトする。
-            "hints":     1.0 if (self.show_hints and (bool(self.candidates) or self.ai_enabled)) else 0.0,
+            # hints(候補手)は ai_enabled のみで表示有無を決める
+            # (NavBar の「解析」トグルに連動。メニューにあった独立トグル
+            #  旧 show_hints は廃止済み)。
+            # 注意: bool(self.candidates) を条件に加えると、AI解析を OFF に
+            # した後も「解析キャッシュに残っている古い candidates」のせいで
+            # hints が表示されたままになるバグになるため、ここでは
+            # ai_enabled 単独で判定する。AI解析 ON 中に着手で candidates が
+            # 一瞬空になる経路があっても、ai_enabled=True の間は α=1.0 を
+            # 維持するのでフェードのチラつきは起きない。
+            "hints":     1.0 if self.ai_enabled else 0.0,
             "move_num":  1.0 if self.move_numbers   else 0.0,
             "badges":    1.0 if self.show_badges    else 0.0,
             # 座標 ON/OFF: 文字 alpha とレイアウト補間の両方に使う進捗値
@@ -469,14 +305,11 @@ class BoardWidget(QWidget):
         elif key == "hints":
             self._overlay_snap_candidates = None
 
-    def _paint_board_inner(self, p, skip_stones: bool = False):
+    def _paint_board_inner(self, p):
         """盤本体(座標を除く全要素)を p に描画する。
-        paintEvent と _capture_flip_pixmap の両方から呼ばれる。
-        座標ラベル(_coords)はここに含まない(回転外で固定描画されるため)。
-
-        skip_stones=True の場合、石(_stones)の描画をスキップする。
-        反転アニメ用に「石なし盤面」をキャプチャするときに使う(石は別途
-        事前生成された pixmap として、回転後の位置に貼り付けられる)。
+        paintEvent と start_content_change_anim の pixmap キャプチャの
+        両方から呼ばれる。
+        座標ラベル(_coords)はここに含まない(_paint_main 側で別途描画される)。
 
         呼び出し前提:
         - p は QPainter で Antialiasing がセット済み
@@ -495,9 +328,8 @@ class BoardWidget(QWidget):
             self._stars(p)
         with _profile("Board.paint.next_lower"):
             self._next_moves_overlay(p)
-        if not skip_stones:
-            with _profile("Board.paint.stones"):
-                self._stones(p)
+        with _profile("Board.paint.stones"):
+            self._stones(p)
         # ── 形勢(ownership) ──
         # フェードアウト中もスナップショットを使って描画継続
         if a_ownership > 0.0:
@@ -568,50 +400,6 @@ class BoardWidget(QWidget):
         # フェード処理は不要: ON/OFF 切替時に瞬時に表示/非表示。
         with _profile("Board.paint.last_mark"):
             self._last_move_mark(p)
-
-    def _capture_flip_pixmap(self):
-        """反転アニメ開始時に呼ぶ: 描画コンポーネントを 3つの pixmap に分割
-        キャプチャする。
-          - self._flip_anim_pixmap_board   : 石なし盤面(木目・格子・星・候補手・
-            形勢・手数・最後の手バッジ等)。回転対象。
-          - self._flip_anim_pixmap_stone_b : 黒石1個分(影・グラデ・ハイライト
-            込み)。回転しない(光源は世界座標で固定)。
-          - self._flip_anim_pixmap_stone_w : 白石1個分。同上。
-        以降のアニメ中フレームは:
-          1. 盤面 pixmap を回転 transform で描画
-          2. 各石の論理位置を _xy で取得 → 回転 transform を適用 → 画面座標
-          3. その画面座標に石 pixmap を drawPixmap(回転なし)
-        という流れで「光源固定・盤だけ回転」の物理的に正しい挙動を実現する。
-
-        高 DPI 対応: devicePixelRatio() に従い物理ピクセル解像度で生成する
-        ことで、回転中もアンチエイリアスの品質を保つ。"""
-        from PyQt6.QtGui import QPixmap
-        dpr = self.devicePixelRatioF()
-        w, h = self.width(), self.height()
-
-        # ── 1. 石なし盤面のキャプチャ ──
-        board = QPixmap(int(w * dpr), int(h * dpr))
-        board.setDevicePixelRatio(dpr)
-        board.fill(Qt.GlobalColor.transparent)
-        pp = QPainter(board)
-        pp.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pp.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        # _xy は _render_flipped() = _flip_anim_from を返す状態で位置計算
-        self._paint_board_inner(pp, skip_stones=True)
-        pp.end()
-        self._flip_anim_pixmap_board = board
-
-        # ── 2. 黒石・白石 pixmap の生成 ──
-        # 通常時の石描画(_stones)と完全に同じ pixmap を共通メソッドで生成する。
-        # _build_stone_pixmap は (pm, pad) のタプルを返す。
-        cell = self._cell()
-        rad = cell * 0.48
-        pm_b, pad = self._build_stone_pixmap("B", rad, dpr)
-        pm_w, _   = self._build_stone_pixmap("W", rad, dpr)
-        self._flip_anim_pixmap_stone_b = pm_b
-        self._flip_anim_pixmap_stone_w = pm_w
-        self._flip_anim_stone_rad = rad
-        self._flip_anim_stone_pad = pad
 
     def start_content_change_anim(self):
         """棋譜内容を差し替える直前に呼ぶ:
@@ -692,97 +480,23 @@ class BoardWidget(QWidget):
         anim.start()
 
     def _paint_main(self, p):
-        """盤本体 + 座標 までの完全な描画(反転アニメ・座標 ON/OFF アニメ含む)。
-        paintEvent と _capture_content_pixmap の両方から呼ばれる。
+        """盤本体 + 座標 までの完全な描画(座標 ON/OFF アニメ含む)。
+        paintEvent と start_content_change_anim の pixmap キャプチャの
+        両方から呼ばれる。
         呼び出し側で:
         - QPainter の Antialiasing は設定済み
         - _sync_overlay_alpha_targets() は呼び出し済み(状態が最新)
-        を前提とする。本メソッド自身は状態を変更しない(snapshot 保存等は呼び出し側)。"""
-        a_coords = self._overlay_alpha.get("coords", 0.0)
+        を前提とする。本メソッド自身は状態を変更しない(snapshot 保存等は呼び出し側)。
 
-        # ── 反転アニメ用 transform ──
-        # _flip_anim_progress < 1.0 のとき、盤(木目・格子・星・候補手・形勢
-        # マーカー・最後の手バッジ等)を時計回りに 180*t 度回転する。
-        # 座標ラベル(_coords)は変換外で固定描画する。
-        # 物理的な光源固定の挙動を再現するため、石は別レイヤーで扱う:
-        # 盤を回した後、回転 transform を解除してから、各石の論理位置を
-        # 回転後の画面座標に変換し、事前生成した石 pixmap(立体感込み)を
-        # その位置に貼り付ける。これにより光源は世界座標で固定されたまま、
-        # 石は盤と一緒に位置だけ動く(物理的に正しい挙動)。
-        # パフォーマンスも軽い: 各フレームの処理は「盤面 pixmap 1枚回転描画
-        # + 石 pixmap を ~200個 drawPixmap」のみで、grdient 計算は事前1回。
-        flip_t = self._flip_anim_progress
-        flipping = (flip_t < 1.0
-                    and self._flip_anim_pixmap_board is not None
-                    and self._flip_anim_pixmap_stone_b is not None
-                    and self._flip_anim_pixmap_stone_w is not None)
-        if flipping:
-            with _profile("Board.paint.flip_anim"):
-                from PyQt6.QtGui import QTransform
-                cx = self.width() / 2.0
-                cy = self.height() / 2.0
-                # 回転方向: 反転ON(_flip_anim_to=True) は時計回り、
-                # 反転OFF(_flip_anim_to=False) は反時計回り。
-                # 180度回転なので最終位置は両方向で同じ(始点と終点は一致)、
-                # アニメ中の途中位置だけが鏡像になる(視覚的に「戻る」印象)。
-                # Qt 座標系では rotate(+) が時計回り、rotate(-) が反時計回り。
-                direction = 1.0 if self._flip_anim_to else -1.0
-                angle_deg = 180.0 * flip_t * direction
-                # 1. 石なし盤面を回転描画
-                p.save()
-                p.translate(cx, cy)
-                p.rotate(angle_deg)
-                p.translate(-cx, -cy)
-                p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-                p.drawPixmap(0, 0, self._flip_anim_pixmap_board)
-                p.restore()
-                # 2. 各石の画面座標を計算して石 pixmap を貼り付け(世界座標で固定)
-                #    回転 transform を QTransform で再現し、各石の論理位置を変換する。
-                xform = QTransform()
-                xform.translate(cx, cy)
-                xform.rotate(angle_deg)
-                xform.translate(-cx, -cy)
-                rad = self._flip_anim_stone_rad
-                pad = self._flip_anim_stone_pad
-                stone_b = self._flip_anim_pixmap_stone_b
-                stone_w = self._flip_anim_pixmap_stone_w
-                # 石 pixmap は中心が pixmap 内 (rad+pad, rad+pad)、サイズ (rad*2+pad*2)
-                offset = rad + pad
-                p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-                for (col, row), color in self.stones.items():
-                    # _xy() は _render_flipped() = _flip_anim_from を返す状態で
-                    # アニメ開始時の論理位置を返す(キャプチャ時と同じ前提)。
-                    bx, by = self._xy(col, row)
-                    # 回転 transform を適用して画面座標へ
-                    sx, sy = xform.map(bx, by)
-                    pm = stone_b if color == "B" else stone_w
-                    # 石中心が (sx, sy) になるよう pixmap 左上を offset 分シフト
-                    p.drawPixmap(QPointF(sx - offset, sy - offset), pm)
-        else:
-            # 静止時(または pixmap 未準備の保険): 通常の盤本体描画
-            self._paint_board_inner(p)
-        # ── 座標ラベル ──
-        # 座標表示の可視性 = a_coords(座標 ON/OFF アニメ) × flip_coord_vis
-        # flip_coord_vis の構成:
-        # - 回転中: 開始 _FLIP_COORD_FADEOUT_RATIO の期間で 1→0(回転と並行に消失)、
-        #   その後は回転完了まで 0(完全非表示)
-        # - 回転完了後: _flip_coord_fadein_progress(別アニメ)が 0→1 に動く
-        # - 静止時(回転していないとき): 1.0(通常表示)
-        flip_coord_vis = 1.0
-        if flip_t < 1.0:
-            # 回転中: 序盤フェードアウト、それ以降は 0
-            r = self._FLIP_COORD_FADEOUT_RATIO
-            if flip_t <= r:
-                flip_coord_vis = 1.0 - flip_t / r              # 1 → 0
-            else:
-                flip_coord_vis = 0.0
-        elif self._flip_coord_fadein_progress < 1.0:
-            # 回転完了後のフェードイン中
-            flip_coord_vis = self._flip_coord_fadein_progress
-        final_coord_alpha = a_coords * flip_coord_vis
-        if final_coord_alpha > 0.0:
+        盤面反転(flipped)の切り替えは start_content_change_anim による
+        クロスフェードで表現するため、このメソッド自体は反転中かどうかを
+        意識せず、常に現在の論理状態(self._flipped)で通常描画するだけでよい。
+        """
+        a_coords = self._overlay_alpha.get("coords", 0.0)
+        self._paint_board_inner(p)
+        if a_coords > 0.0:
             with _profile("Board.paint.coords"):
-                self._coords(p, alpha=final_coord_alpha)
+                self._coords(p, alpha=a_coords)
 
     @_profile_method("Board.paint")
     def paintEvent(self, ev):
@@ -877,9 +591,16 @@ class BoardWidget(QWidget):
     @staticmethod
     def _wood_cache_path() -> Path:
         """テクスチャPNGの保存先パスを返す。
-        gui/cache/ フォルダ内に保存する (board.py は gui/widgets/ 配下にあるため .parent.parent)。
+        通常実行時は gui/cache/ に保存する。
+        PyInstaller ビルド時は _MEIPASS に書き込めないため
+        %APPDATA%/Kizuki/cache/ を使用する。
         """
-        cache_dir = Path(__file__).parent.parent / "cache"
+        import sys
+        if hasattr(sys, "_MEIPASS"):
+            import os
+            cache_dir = Path(os.environ.get("APPDATA", Path.home())) / "Kizuki" / "cache"
+        else:
+            cache_dir = get_base_dir() / "gui" / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir / "wood_texture_512_d8b058.png"
 
@@ -964,7 +685,7 @@ class BoardWidget(QWidget):
     def _bg(self, p):
         ox, oy = self._orig()
         c = self._cell()
-        bw = c * (self.board_size - 1)
+        c * (self.board_size - 1)
         # 板内マージン（板の端〜第1グリッド線）:
         #   座標OFF: c*0.6（木枠相当・少し広め）
         #   座標ON : c*1.2（ラベル領域として拡張、石との余裕確保）
@@ -1148,7 +869,7 @@ class BoardWidget(QWidget):
         # - 19 路: 9 個(3-3, 4-4, 5-5 各線の交点、業界標準)
         # - 13 路: 5 個(隅の 4-4 と中央の 7-7、KGS / OGS / Lizzie / KaTrain 等
         #              主要囲碁ソフトと同じ実装)
-        # - 9 路: 5 個(隅の 3-3 と中央の 5-5、同上)
+        # - 9 路: 1 個(天元のみ。ユーザー指定によりこの盤サイズだけ中央のみ表示)
         # 19 路以外は「9 個全部並べる」流派もあるが、現代の主要囲碁ソフトでは
         # 5 個が主流。標準に合わせることで他ソフトから移行するユーザーも違和感がない。
         positions = {
@@ -1156,7 +877,7 @@ class BoardWidget(QWidget):
                  (9, 3), (9, 9), (9, 15),
                  (15, 3), (15, 9), (15, 15)],
             13: [(3, 3), (3, 9), (9, 3), (9, 9), (6, 6)],
-            9:  [(2, 2), (2, 6), (6, 2), (6, 6), (4, 4)],
+            9:  [(4, 4)],
         }.get(self.board_size, [])
         # 星点サイズは「19路盤相当の cell_size」を基準に算出する。
         # _cell() は (board_size + α) で割るため盤面サイズが小さいほど大きくなり、
@@ -1468,7 +1189,9 @@ class BoardWidget(QWidget):
                 and getattr(self, "_mark_pm_black", None) is not None:
             return
         mark_r = rad * 0.40
-        line_w = max(1.0, rad * 0.08)
+        # リング線幅。rad=28.5px(石半径の典型値)時に line-width≈2.85px となる比率。
+        # 細かい値(0.08→0.107→0.0982)を経て、きりの良い 0.1 に最終調整した。
+        line_w = max(1.0, rad * 0.1)
         # 黒石上に描く白いリング
         pm_white, pad = self._build_mark_pixmap(rad, mark_r, line_w, QColor("#ffffff"), dpr)
         # 白石上に描く黒いリング
@@ -1483,7 +1206,7 @@ class BoardWidget(QWidget):
         伝統的な棋譜の「最終手マーカー」として使われる表現。
         黒石上は白線、白石上は黒線で描画して視認性を確保する。
 
-        メニュー「表示 > 最後の手をマーク」で ON/OFF (デフォルト OFF)。
+        メニュー「表示 > 最終手をマーク」で ON/OFF (デフォルト OFF)。
         評価バッジ (_last_move_badge: 右上の○△✕) とは独立で、両方
         同時に有効でも併存可能。
 
@@ -1618,7 +1341,10 @@ class BoardWidget(QWidget):
         if not self.next_moves: return
         cell = self._cell()
         rad = cell * 0.48
-        candidate_positions = self._candidate_positions() if self.show_hints else set()
+        # 候補手の表示有無は ai_enabled に連動(メニューの独立トグルは廃止済み)。
+        # _sync_overlay_alpha_targets の hints 判定と同じ条件式を使う。
+        hints_visible = self.ai_enabled
+        candidate_positions = self._candidate_positions() if hints_visible else set()
 
         for col, row, color, is_main in self.next_moves:
             if (col, row) in candidate_positions:
@@ -1697,7 +1423,7 @@ class BoardWidget(QWidget):
         H = self.height()
         cache_key = (mn_key, stones_key, round(cell, 2),
                      round(dpr, 3), theme_id, W, H,
-                     self._render_flipped())
+                     self._flipped)
 
         if getattr(self, "_mn_pm_key", None) != cache_key \
                 or getattr(self, "_mn_pm", None) is None:

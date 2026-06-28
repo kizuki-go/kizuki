@@ -9,7 +9,6 @@ gui/_mixins/theme_ctrl.py — テーマ切替・ウェルカム遷移を MainWin
 - apply_theme: テーマ切替のフェードトリガ
 - _apply_theme_immediate: 全コンポーネントへの配色再適用 (アニメ無し本体)
 - _on_theme_fade_done / _cancel_theme_fade: フェードアニメコールバック
-- _open_color_adjustment: カラー調整ダイアログ起動
 - _apply_comment_close_btn_qss: コメント × ボタンの QSS 適用
 - _set_welcome_mode: ウェルカム⇔盤面モード切替
 - _prepare_welcome_to_board_fade / _animate_welcome_to_board: 遷移アニメ
@@ -21,23 +20,11 @@ if TYPE_CHECKING:
     from gui._mixins._types import MainWindowProto
 
 from PyQt6.QtWidgets import (
-    QWidget, QApplication, QFrame, QGraphicsOpacityEffect,
-    QLabel, QListWidget, QMenu, QPushButton, QScrollArea, QStackedWidget,
-    QTextEdit, QMainWindow,
+    QWidget,
 )
-from PyQt6.QtCore import (
-    Qt, QEasingCurve, QPropertyAnimation, QParallelAnimationGroup,
-    QSettings, QTimer,
-)
-from PyQt6.QtGui import QPalette, QPixmap
 
 from gui.theme import T, _theme
-from gui.icons import menu_qss, rank_list_qss, statusbar_qss
-from gui.widgets.panels import InfoPanel
-from gui.widgets.navbar import NavBar
-from gui.widgets.welcome import _WelcomeCard
-from gui.widgets.common import _RankItemDelegate, FlatSlider
-from gui.dialogs import ColorAdjustmentDialog
+from gui.icons import menu_qss, rank_list_qss
 from gui.infra import _profile_method
 
 
@@ -60,7 +47,6 @@ class ThemeCtrlMixin:
         # centralWidget をキャプチャしてオーバーレイ表示する。
         # キャプチャはタイトルバー含む centralWidget 全体。
         from PyQt6.QtWidgets import QLabel
-        from PyQt6.QtGui import QPixmap
         from PyQt6.QtCore import Qt as _Qt
         cw = self.centralWidget()
         overlay = None
@@ -156,7 +142,6 @@ class ThemeCtrlMixin:
         self.setStyleSheet(
             f"QMainWindow{{background:{T().BG.name()};}}"
             + menu_qss()
-            + statusbar_qss()
         )
 
         # ── 2. centralWidget ──────────────────────────────────────────────
@@ -195,6 +180,11 @@ class ThemeCtrlMixin:
         # コミメニューの「その他」インラインウィジェットも apply_theme
         if self._komi_custom_widget is not None:
             self._komi_custom_widget.apply_theme()
+        # トースト通知のテキスト色もテーマに追従させる
+        # (背景カードは paintEvent で毎回 T() を参照するため自動追従するが、
+        #  QLabel の文字色は固定スタイルシートのため明示的な再設定が必要)。
+        if self._toast is not None:
+            self._toast.update_theme()
         # 棋力メニュー内の QListWidget にもテーマ追従の QSS を再適用
         # (menu_qss は QListWidget には効かないため別途必要)。
         # 描画は _RankItemDelegate が担当し、テーマ色は delegate 内部の
@@ -313,7 +303,7 @@ class ThemeCtrlMixin:
         # ── 8. セパレータ ─────────────────────────────────────────────────
         from PyQt6.QtWidgets import QFrame
         for frame in self.findChildren(QFrame):
-            ss = frame.styleSheet()
+            frame.styleSheet()
             # BORDER2 色のセパレータを更新（高さ1pxの区切り線）
             if frame.maximumHeight() == 1 and frame.minimumHeight() == 1:
                 frame.setStyleSheet(f"background:{T().BORDER2.name()};")
@@ -373,14 +363,6 @@ class ThemeCtrlMixin:
             for child in self._root_widget.findChildren(QWidget):
                 child.update()
 
-    def _open_color_adjustment(self: "MainWindowProto"):
-        """カラー調整ダイアログ(開発用)を開く。"""
-        dlg = ColorAdjustmentDialog(self)
-        dlg.setModal(False)  # 非モーダル: 開いた状態で本体UIを操作可能に
-        dlg.show()
-        # 参照を保持(GC防止)
-        self._color_adj_dialog = dlg
-
     def _apply_comment_close_btn_qss(self: "MainWindowProto"):
         """コメントオーバーレイの ✕ ボタンに専用スタイルを適用する。
         色は T().TEXT(ダーク=#fff、ライト=#333)。ホバー時も背景は変えない。
@@ -438,6 +420,8 @@ class ThemeCtrlMixin:
         # スクリーンショット・保存・コピー: ウェルカム時は無効化
         if self._ss_act is not None:
             self._ss_act.setEnabled(not welcome)
+        if self._ss_win_act is not None:
+            self._ss_win_act.setEnabled(not welcome)
         if self._save_act is not None:
             self._save_act.setEnabled(not welcome)
         if self._copy_act is not None:

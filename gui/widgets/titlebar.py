@@ -11,16 +11,59 @@ style_qmenu (現状 main_window.py、Phase 4 で gui.menus に移動) への
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
-    QWidget, QPushButton, QHBoxLayout, QLabel, QMenu, QMainWindow,
+    QWidget, QPushButton, QHBoxLayout, QLabel,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QPoint, QRect, QSize, QDateTime, QByteArray
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QSize, QByteArray
 from PyQt6.QtGui import (
     QPainter, QColor, QIcon, QPixmap,
 )
 from PyQt6.QtSvg import QSvgRenderer
 
-from gui.theme import T, SP_MD, SP_LG
+from gui.theme import T
 from gui.icons import make_icon
+from gui.infra import get_base_dir
+
+
+class _CloseButton(QPushButton):
+    """タイトルバーの閉じる(×)ボタン専用クラス。
+
+    ホバー時は背景が赤(T().RED)になる(QSS側で設定済み)が、アイコン自体は
+    他のウィンドウ操作ボタンと同様に固定色で生成されていたため、ライトモード
+    時にホバーしても×アイコンが暗い色のままで赤背景に対して視認性が低い問題が
+    あった。これを解消するため、ホバー中だけアイコンを白色で再生成する。
+
+    icon_factory: (color: str) -> QIcon を受け取るコールバック。
+    呼び出し元(_CustomTitleBar._make_window_btn_icon)を直接 import せず
+    疎結合にするため、コンストラクタで関数として渡す。
+    normal_color_getter: 通常時(非ホバー)のアイコン色を返す呼び出し可能。
+    テーマ変更時にも追従できるよう、固定文字列ではなく毎回呼び出す形にする。
+    """
+
+    HOVER_ICON_COLOR = "#ffffff"
+
+    def __init__(self, icon_factory, normal_color_getter, parent=None):
+        super().__init__(parent)
+        self._icon_factory = icon_factory
+        self._normal_color_getter = normal_color_getter
+        self._hovering = False
+
+    def enterEvent(self, ev):
+        self._hovering = True
+        self.setIcon(self._icon_factory(self.HOVER_ICON_COLOR))
+        super().enterEvent(ev)
+
+    def leaveEvent(self, ev):
+        self._hovering = False
+        self.setIcon(self._icon_factory(self._normal_color_getter()))
+        super().leaveEvent(ev)
+
+    def refresh_normal_icon(self):
+        """テーマ変更時など、非ホバー状態のアイコン色を再適用する。
+        ホバー中であれば白のままにする(マウスがまだボタン上にあるため)。"""
+        if self._hovering:
+            self.setIcon(self._icon_factory(self.HOVER_ICON_COLOR))
+        else:
+            self.setIcon(self._icon_factory(self._normal_color_getter()))
 
 
 class _CustomTitleBar(QWidget):
@@ -134,7 +177,16 @@ class _CustomTitleBar(QWidget):
         """ウィンドウ操作ボタン(_、□、×)を生成する。
         kind: 'min' | 'max' | 'close' | 'toggle_panel' | 'volume_on' | 'volume_off'
         """
-        btn = QPushButton()
+        if kind == "close":
+            # 閉じるボタンのみ、ホバー時にアイコンを白へ切り替える専用クラス。
+            # (ホバー時は背景が赤になるため、暗い色のアイコンだと視認性が
+            #  落ちる。特にライトモードで顕著。)
+            btn = _CloseButton(
+                icon_factory=lambda color: self._make_window_btn_icon("close", color),
+                normal_color_getter=lambda: T().TEXT.name(),
+            )
+        else:
+            btn = QPushButton()
         btn.setFlat(True)
         btn.setFixedSize(self.BTN_WIDTH, self.HEIGHT)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -460,7 +512,6 @@ class _CustomTitleBar(QWidget):
         eventFilter で MouseMove を監視し、マウスがタイトルバーのいずれかの
         メニューボタン上に来たら手動で切替を起動する。
         """
-        from PyQt6.QtCore import QPoint
         if not (0 <= index < len(self._menu_buttons)):
             return
         # メニューと index を保持(ホバー切替用)
@@ -666,7 +717,7 @@ class _CustomTitleBar(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         # テーマに応じて light/dark 版を選択
         theme_mode = "dark" if t.BG.lightness() < 128 else "light"
-        svg_path = Path(__file__).parent.parent / "assets" / f"logo_mark_{theme_mode}.svg"
+        svg_path = get_base_dir() / "gui" / "assets" / f"logo_mark_{theme_mode}.svg"
         rendered = False
         try:
             if svg_path.exists():
@@ -694,7 +745,12 @@ class _CustomTitleBar(QWidget):
         else:
             is_max = win.isMaximized()
         self.update_max_restore_icon(is_max)
-        self._btn_close.setIcon(self._make_window_btn_icon("close", t.TEXT.name()))
+        # 閉じるボタンはホバー中なら白アイコンを維持、そうでなければ
+        # テーマ色で再生成する(_CloseButton.refresh_normal_icon に委譲)。
+        if isinstance(self._btn_close, _CloseButton):
+            self._btn_close.refresh_normal_icon()
+        else:
+            self._btn_close.setIcon(self._make_window_btn_icon("close", t.TEXT.name()))
         # 右パネルトグルボタンも現在の状態を保ったまま色を更新
         # (MainWindow側の _right_panel_collapsed を参照、無ければopen扱い)
         if self._btn_toggle_panel is not None:

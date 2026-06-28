@@ -15,6 +15,7 @@ import subprocess
 import threading
 import time
 import json
+import re
 import logging
 from dataclasses import dataclass, field
 from typing import Optional, Callable
@@ -103,16 +104,24 @@ class KataGoEngine:
         # ポンダリング結果のコールバック on_result(AnalysisResult)
         self._ponder_callback: Optional[Callable[[AnalysisResult], None]] = None
 
-        # ── 補助解析用 ──────────────────────────────────────────
-        # 単発解析（先の手にジャンプした際に直前手を後追い解析するなど）。
-        # 通常のポンダリングとは独立して動き、結果が来たら一度だけコールバックする。
-        # qid プレフィックス "a" で識別する。複数の補助解析が同時に走り得る。
-        # qid -> コールバック の辞書
-        self._aux_callbacks: dict[str, Callable[[AnalysisResult], None]] = {}
-
         # 後方互換（既存コードが参照している場合のため）
         self.on_analysis = None
         self.on_error = None
+
+        # OpenCL チューニング進捗コールバック(起動時のみ使用想定)。
+        # 呼び出し元(起動シーケンス)が
+        # on_tuning_progress(phase_count, current, phase_total) 形式の
+        # callable をセットすると、_drain_stderr がチューニングログを検出する
+        # たびに呼び出す。
+        #   phase_count: 何個目のフェーズか(1始まり、累積カウント)
+        #   current    : そのフェーズ内での現在の進捗(0-indexed)
+        #   phase_total: そのフェーズで testing される設定の総数
+        # KataGo はチューニングを複数フェーズ(xGemm/winograd等)に分けて
+        #順に行うため、phase_count は「全体で何フェーズあるか」ではなく
+        # 「これまでに何個目のフェーズに入ったか」を示す(全体数は事前に
+        # わからないため)。
+        # 通常の解析時(起動完了後)はチューニングログが出ないため未使用のまま。
+        self.on_tuning_progress: Optional[Callable[[int, int, int], None]] = None
 
         # 起動完了通知用イベント（_drain_stderr が "Started, ready to begin handling requests"
         # を検出したら set される）
@@ -128,11 +137,14 @@ class KataGoEngine:
             args += ["-human-model", self.human_model]
 
         logger.info("Starting KataGo analysis: %s", " ".join(args))
+        import sys as _sys
+        _flags = subprocess.CREATE_NO_WINDOW if _sys.platform == "win32" else 0
         self._proc = subprocess.Popen(
             args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            creationflags=_flags,
         )
         self._running = True
 
@@ -162,7 +174,6 @@ class KataGoEngine:
         self._running = False
         self._ponder_qid = None
         self._ponder_callback = None
-        self._aux_callbacks.clear()
         if self._proc:
             try:
                 self._proc.stdin.close()
@@ -311,68 +322,6 @@ class KataGoEngine:
             self._send({"id": term_id, "action": "terminate_all"})
         logger.info("Pondering stopped")
 
-    def start_aux_analysis(
-        self,
-        moves: list[tuple[str, str]],
-        on_result: Callable[[AnalysisResult], None],
-        max_visits: int = 1000,
-        num_results: int = 5,
-        include_ownership: bool = False,
-    ) -> Optional[str]:
-        """単発の補助解析を開始する（ポンダリングとは独立）。
-
-        ジャンプ先で直前手が未解析の場合、その直前手の局面を一度だけ解析して
-        悪手判定に使うための機構。指定 visits を満たした時点で 1 回だけ
-        on_result が呼ばれる（reportDuringSearchEvery は使わない）。
-
-        Args:
-            moves: ルートからの着手列。最後の局面が解析対象。
-            on_result: 結果到達時に呼ばれる。スレッドプール上で実行される。
-            max_visits: 解析の上限。デフォルト 1000。
-            include_ownership: 形勢判断(ownership)データを KataGo に要求するか。
-                デフォルト False。悪手判定用途では ownership は不要なので、
-                呼び出し側が True を指定しない限り送らない(GPU 負荷削減)。
-
-        Returns:
-            qid (str) — 後でキャンセルする際に使える。エンジン未起動時は None。
-
-        既に走っている補助解析はキャンセルされない（並列に複数走り得る）。
-        個別にキャンセルしたい場合は cancel_aux_analysis(qid) を呼ぶ。
-        """
-        if not self.is_running():
-            return None
-        with self._lock:
-            self._query_id += 1
-            qid = "a%d" % self._query_id
-            self._aux_callbacks[qid] = on_result
-
-        moves_list = [[c, m] for c, m in moves]
-        query = {
-            "id": qid,
-            "moves": moves_list,
-            "rules": self.rules,
-            "komi": self.komi,
-            "boardXSize": self.board_size,
-            "boardYSize": self.board_size,
-            "analyzeTurns": [len(moves)],
-            "maxVisits": max_visits,
-            "includeOwnership": include_ownership,
-        }
-        if self._initial_stones:
-            query["initialStones"] = self._initial_stones
-        self._send(query)
-        logger.info("Aux analysis started: qid=%s moves=%d ownership=%s",
-                    qid, len(moves), include_ownership)
-        return qid
-
-    def cancel_aux_analysis(self, qid: str):
-        """指定 qid の補助解析をキャンセルする（コールバック登録のみ解除）。
-
-        KataGo 側のクエリは引き続き実行される可能性があるが、結果は破棄される。
-        """
-        with self._lock:
-            self._aux_callbacks.pop(qid, None)
-
     def _send(self, query: dict):
         """クエリを KataGo の stdin に送る（スレッドセーフ）。"""
         line = json.dumps(query) + "\n"
@@ -419,7 +368,6 @@ class KataGoEngine:
                 ponder_qid = self._ponder_qid
                 prefetch_qid = self._ponder_prefetch_qid
                 callback = self._ponder_callback
-                aux_callback = self._aux_callbacks.pop(qid, None)
 
             is_ponder = (qid == ponder_qid)
             is_prefetch = (qid == prefetch_qid)
@@ -429,14 +377,6 @@ class KataGoEngine:
                     callback(result)
                 except Exception as e:
                     logger.warning("Ponder callback error: %s", e)
-                continue
-
-            # 補助解析（"a" プレフィックス）の応答
-            if aux_callback is not None:
-                try:
-                    aux_callback(result)
-                except Exception as e:
-                    logger.warning("Aux analysis callback error: %s", e)
                 continue
 
     def _parse_json(self, data: dict, move_number: int) -> AnalysisResult:
@@ -489,7 +429,23 @@ class KataGoEngine:
         result.raw = json.dumps(data)
         return result
 
+    # OpenCL チューニングログのパース用パターン(_drain_stderr で使用)。
+    # 例:
+    #   "Testing 69 different configs"      → そのフェーズの設定総数
+    #   "Tuning 18/69 Calls/sec 7187.86 ..." → 現在の進捗(0-indexed)
+    # KataGo はチューニングを複数フェーズ(xGemm/winograd等)に分けて行うため、
+    # フェーズが変わるたびに新しい "Testing N different configs" が出力され、
+    # 進捗はフェーズごとにリセットされる。フェーズ数自体は環境依存で事前に
+    # わからないため、「現在のフェーズ内での何個目か」に加えて「これまでに
+    # 何個目のフェーズに入ったか」を累積カウントして、ユーザーに「どこまで
+    # 進んでいるか」の手がかりを示す(全体の合計フェーズ数は事前にわからない
+    # ため、終了予測はできない)。
+    _TUNING_TESTING_RE = re.compile(r"^Testing (\d+) different configs")
+    _TUNING_PROGRESS_RE = re.compile(r"^Tuning (\d+)/(\d+)")
+
     def _drain_stderr(self):
+        tuning_phase_total = 0  # 現在のチューニングフェーズの設定総数(未検出時は0)
+        tuning_phase_count = 0  # これまでに開始したフェーズの累積数(1始まりで報告)
         for line in self._proc.stderr:
             line = line.decode("utf-8", errors="replace").rstrip()
             if line:
@@ -498,6 +454,26 @@ class KataGoEngine:
                 if not self._ready_event.is_set() and \
                         "Started, ready to begin handling requests" in line:
                     self._ready_event.set()
+
+                # ── OpenCL チューニング進捗の検出 ──
+                # 起動完了前(初回起動・新環境)のみ意味を持つ。起動完了後の
+                # 通常解析ではこのパターンに一致する行は出現しない想定。
+                if self.on_tuning_progress is not None:
+                    m_testing = self._TUNING_TESTING_RE.match(line)
+                    if m_testing:
+                        tuning_phase_total = int(m_testing.group(1))
+                        tuning_phase_count += 1
+                        continue
+                    m_progress = self._TUNING_PROGRESS_RE.match(line)
+                    if m_progress and tuning_phase_total > 0:
+                        current = int(m_progress.group(1))
+                        try:
+                            self.on_tuning_progress(
+                                tuning_phase_count, current, tuning_phase_total)
+                        except Exception:
+                            # コールバック側のエラーで起動シーケンス自体を
+                            # 壊さないよう、ここで握りつぶす。
+                            pass
 
 
 # ── Mock（テスト用） ────────────────────────────────────────────────────────
@@ -516,7 +492,6 @@ class MockKataGoEngine(KataGoEngine):
         self._ponder_qid = None
         self._ponder_callback = None
         self._ponder_timer: Optional[threading.Timer] = None
-        self._aux_callbacks: dict[str, Callable[[AnalysisResult], None]] = {}
 
     def start(self):
         logger.info("MockKataGoEngine started")

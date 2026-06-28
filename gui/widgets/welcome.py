@@ -15,16 +15,14 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QSizePolicy,
-    QApplication, QMenu,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRectF
 from PyQt6.QtGui import (
-    QAction, QKeySequence, QBrush, QColor, QPainter, QPainterPath, QPen,
+    QBrush, QColor, QPainter, QPainterPath, QPen,
 )
 
 from gui.theme import T
 from gui.fonts import Font_XS, Font_SM, Font_LG
-from gui.icons import make_icon
 
 
 class WelcomePane(QWidget):

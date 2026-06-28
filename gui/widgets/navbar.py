@@ -13,12 +13,12 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QLabel, QPushButton, QSlider,
-    QHBoxLayout, QVBoxLayout, QCheckBox, QRadioButton,
+    QHBoxLayout, QVBoxLayout,
 )
 from PyQt6.QtCore import (
-    Qt, pyqtSignal, QPointF, QSize, QSettings, QTimer,
+    Qt, pyqtSignal, QPointF,
 )
-from PyQt6.QtGui import QPainter, QBrush, QColor, QIcon, QPixmap
+from PyQt6.QtGui import QPainter, QBrush, QColor
 
 from gui.theme import T, SP_XS, SP_SM, SP_LG, PAD_CARD
 from gui.fonts import Font_XS, Font_MD
@@ -142,7 +142,6 @@ class ToggleSwitch(QWidget):
                     self._timer.stop()
             self.update()
 
-        from PyQt6.QtCore import QTimer
         self._timer = QTimer(self)
         self._timer.timeout.connect(_tick)
         self._timer.start(16)  # ~60fps
